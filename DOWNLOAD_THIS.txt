@@ -4,24 +4,24 @@
 
 You have THREE files to download:
 
-1. 📦 channelos-0.1.0-alpha.tar.gz  - Compressed archive (Linux/Mac)
-2. 📦 channelos-0.1.0-alpha.zip     - Compressed archive (Windows)
-3. 📁 channelos/                    - Extracted directory
+1. 📦 canal-0.1.0-alpha.tar.gz  - Compressed archive (Linux/Mac)
+2. 📦 canal-0.1.0-alpha.zip     - Compressed archive (Windows)
+3. 📁 canal/                    - Extracted directory
 
 Choose ONE format based on your system:
 
 ┌────────────────────────────────────────────────────────────┐
 │ Linux/Mac Users:                                           │
-│   Download: channelos-0.1.0-alpha.tar.gz                   │
-│   Extract:  tar -xzf channelos-0.1.0-alpha.tar.gz          │
-│   Enter:    cd channelos                                   │
+│   Download: canal-0.1.0-alpha.tar.gz                   │
+│   Extract:  tar -xzf canal-0.1.0-alpha.tar.gz          │
+│   Enter:    cd canal                                   │
 └────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────┐
 │ Windows Users:                                             │
-│   Download: channelos-0.1.0-alpha.zip                      │
+│   Download: canal-0.1.0-alpha.zip                      │
 │   Extract:  Right-click -> Extract All                    │
-│   Enter:    cd channelos                                   │
+│   Enter:    cd canal                                   │
 └────────────────────────────────────────────────────────────┘
 
 After extraction:
