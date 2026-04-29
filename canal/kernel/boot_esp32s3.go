@@ -179,19 +179,72 @@ func runHTTPDomain() {
 }
 
 func runLEDDomain() {
-	println("[LED] Starting...")
-	led := machine.GPIO2
-	led.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	println("[LED] Blinking on GPIO 2")
-	state := false
+	println("[LED] Starting WS2812 on GPIO 48")
+
+	err := machine.SPI0.Configure(machine.SPIConfig{
+		Frequency: 3_200_000, // 80MHz/25 = 3.2MHz; 4 SPI bits = 1.25µs WS2812 bit
+		Mode:      0,
+		SCK:       machine.NoPin,
+		SDO:       machine.GPIO48,
+		SDI:       machine.NoPin,
+	})
+	if err != nil {
+		println("[LED] SPI error:", err.Error())
+		return
+	}
+
+	println("[LED] Cycling colors")
+
+	// color order: R, G, B (ws2812Write sends as GRB)
+	colors := [][3]uint8{
+		{255, 0, 0},
+		{0, 255, 0},
+		{0, 0, 255},
+		{255, 80, 0},
+		{80, 0, 255},
+		{0, 0, 0},
+	}
+	i := 0
 	for {
-		if state {
-			led.High()
+		c := colors[i%len(colors)]
+		ws2812Write(c[0], c[1], c[2])
+		i++
+		vTaskDelay(600)
+	}
+}
+
+// ws2812Write sends one WS2812 LED color via SPI MOSI at 3.2MHz.
+// Each WS2812 bit is encoded as 4 SPI bits: 1→1110 (0xE), 0→1000 (0x8).
+// Two WS2812 bits pack into one SPI byte, so 8 WS2812 bits = 4 SPI bytes.
+// WS2812 expects GRB byte order.
+func ws2812Write(r, g, b uint8) {
+	var buf [14]byte // 12 bytes GRB data + 2 zero bytes (reset pulse start)
+	ws2812EncodeByte(g, buf[0:4])
+	ws2812EncodeByte(r, buf[4:8])
+	ws2812EncodeByte(b, buf[8:12])
+	// buf[12], buf[13] = 0x00 — begins the >50µs reset; vTaskDelay finishes it
+	machine.SPI0.Tx(buf[:], nil)
+}
+
+// ws2812EncodeByte encodes one WS2812 data byte into 4 SPI bytes (MSB first).
+// bit=1 → SPI nibble 1110; bit=0 → SPI nibble 1000.
+// Each SPI byte carries two WS2812 bits in its high and low nibbles.
+func ws2812EncodeByte(b uint8, out []byte) {
+	for i := 0; i < 4; i++ {
+		hi := (b >> (7 - uint(i)*2)) & 1
+		lo := (b >> (6 - uint(i)*2)) & 1
+		var v byte
+		if hi != 0 {
+			v |= 0xE0
 		} else {
-			led.Low()
+			v |= 0x80
 		}
-		state = !state
-		vTaskDelay(500)
+		if lo != 0 {
+			v |= 0x0E
+		} else {
+			v |= 0x08
+		}
+		out[i] = v
 	}
 }
 
