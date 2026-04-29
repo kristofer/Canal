@@ -1,5 +1,7 @@
 # Build artifacts
 build/out/
+build/idf-app/build/
+build/idf-app/sdkconfig
 *.elf
 *.bin
 *.hex
