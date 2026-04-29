@@ -2,7 +2,7 @@
 
 TINYGO ?= tinygo
 TARGET ?= esp32s3
-PORT ?= /dev/ttyUSB0
+PORT ?= /dev/cu.usbmodem1201
 BAUD ?= 115200
 
 ROOT_DIR := $(shell pwd)

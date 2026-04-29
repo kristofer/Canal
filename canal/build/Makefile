@@ -22,18 +22,26 @@ LED_SRC := domains/led-blinker/main.go
 
 all: kernel wifi http led flash
 
+# kernel:
+# 	@echo "Building kernel..."
+# 	$(TINYGO) build \
+# 		-target=$(TARGET) \
+# 		-opt=2 \
+# 		-o build/kernel.elf \
+# 		$(KERNEL_SRC)
+
 kernel:
 	@echo "Building kernel..."
 	$(TINYGO) build \
-		-target=$(TARGET) \
+		-target=$(PWD)/esp32s3.json \
 		-opt=2 \
 		-o build/kernel.elf \
-		$(KERNEL_SRC)
+		./kernel
 
 wifi:
 	@echo "Building WiFi domain..."
 	$(TINYGO) build \
-		-target=$(TARGET) \
+		-target=$(PWD)/build/esp32s3.json \
 		-opt=2 \
 		-o build/wifi.elf \
 		$(WIFI_SRC)
@@ -41,7 +49,7 @@ wifi:
 http:
 	@echo "Building HTTP server domain..."
 	$(TINYGO) build \
-		-target=$(TARGET) \
+		-target=$(PWD)/build/esp32s3.json \
 		-opt=2 \
 		-o build/http-server.elf \
 		$(HTTP_SRC)
@@ -49,7 +57,7 @@ http:
 led:
 	@echo "Building LED domain..."
 	$(TINYGO) build \
-		-target=$(TARGET) \
+		-target=$(PWD)/build/esp32s3.json \
 		-opt=2 \
 		-o build/led-blinker.elf \
 		$(LED_SRC)
@@ -67,7 +75,7 @@ flash: all
 		0x200000 build/led-blinker.bin
 
 monitor:
-	python -m serial.tools.miniterm /dev/ttyUSB0 115200
+	tinygo monitor
 
 clean:
 	rm -rf build/*.elf build/*.bin
