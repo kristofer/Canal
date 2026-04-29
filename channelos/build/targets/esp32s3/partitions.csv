@@ -1,0 +1,9 @@
+# Name,     Type, SubType, Offset,  Size,    Flags
+nvs,        data, nvs,     0x9000,  0x6000,
+phy_init,   data, phy,     0xf000,  0x1000,
+factory,    app,  factory, 0x10000, 0xF0000,
+wifi,       app,  0x20,    0x100000,0x80000,
+tls,        app,  0x21,    0x180000,0x80000,
+sdcard,     app,  0x22,    0x200000,0x80000,
+http,       app,  0x23,    0x280000,0x80000,
+logger,     app,  0x24,    0x300000,0x80000,

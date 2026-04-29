@@ -1,0 +1,29 @@
+# Build artifacts
+build/out/
+*.elf
+*.bin
+*.hex
+*.uf2
+*.map
+
+# TinyGo cache
+.tinygo-cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Third party libraries (downloaded by setup script)
+third_party/fatfs/
+third_party/mbedtls/
+!third_party/README.md
+
+# Logs
+*.log
