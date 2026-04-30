@@ -64,26 +64,14 @@ func spawnInitialDomains() {
 	// In a real system, these would be loaded from flash
 	// For now, we'll create them with dummy addresses
 
-	// GPIO service domain
-	gpioID, err := DomainSpawn(
-		"gpio-svc",
-		0x08000000, 4096, // Code at flash start
-		0x20000000, 2048, // Data in RAM
-		nil, // Entry point (would be actual function)
-		2,   // Priority
-	)
+	// GPIO service domain (entry point TBD — placeholder for non-ESP32S3 targets)
+	gpioID, err := DomainSpawn("gpio-svc", HeapSmall, nil, 2)
 	if err == ErrNone {
 		debugPrintf("GPIO service spawned (ID: %d)\n", gpioID)
 	}
 
 	// UART service domain
-	uartID, err := DomainSpawn(
-		"uart-svc",
-		0x08001000, 4096,
-		0x20000800, 2048,
-		nil,
-		2,
-	)
+	uartID, err := DomainSpawn("uart-svc", HeapSmall, nil, 2)
 	if err == ErrNone {
 		debugPrintf("UART service spawned (ID: %d)\n", uartID)
 	}

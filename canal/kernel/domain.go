@@ -6,94 +6,37 @@ import (
 	"unsafe"
 )
 
-// Global domain table
+// Per-domain heap sizes. Domains declare their memory budget at spawn time.
+// The slice is allocated from the Go GC heap; HeapStart holds its address
+// for future MPU region configuration.
+const (
+	HeapTiny   uint32 = 2 * 1024  //  2 KB — LED blinker, simple sensor domains
+	HeapSmall  uint32 = 8 * 1024  //  8 KB — typical service domain
+	HeapMedium uint32 = 32 * 1024 // 32 KB — WiFi, HTTP, or other complex domains
+)
+
 const maxDomains = 32
 
 var domainTable [maxDomains]Domain
 var domainTableLock uint32
-var nextDomainID DomainID = 1
 
-// Memory allocator (simple bump allocator for now)
-var heapBase uintptr = 0x20010000 // Start of allocatable RAM
-var heapCurrent uintptr = heapBase
-var heapEnd uintptr = 0x20020000 // 64KB heap
-var heapLock uint32
-
-// Allocate memory region
-func allocMemory(size uint32) uintptr {
-	spinLock(&heapLock)
-	defer spinUnlock(&heapLock)
-
-	// Align to 32 bytes (cache line)
-	size = (size + 31) & ^uint32(31)
-
-	addr := heapCurrent
-	heapCurrent += uintptr(size)
-
-	if heapCurrent > heapEnd {
-		return 0 // Out of memory
-	}
-
-	return addr
-}
-
-// Initialize domain table
+// InitDomainTable marks every slot as empty.
 func InitDomainTable() {
 	for i := range domainTable {
 		domainTable[i].State = DomainStateInvalid
 	}
 }
 
-// Allocate domain ID
-func allocDomainID() DomainID {
-	spinLock(&domainTableLock)
-	defer spinUnlock(&domainTableLock)
 
-	id := nextDomainID
-	nextDomainID++
-
-	if nextDomainID >= maxDomains {
-		nextDomainID = 1 // Wrap around (0 is invalid)
-	}
-
-	return id
-}
-
-// Domain entry point (wrapper)
-//
-//export domainEntry
-func domainEntry(params unsafe.Pointer) {
-	domainID := DomainID(uintptr(params))
-	domain := &domainTable[domainID]
-
-	// Configure MPU for this domain
-	ConfigureDomainMPU(domain)
-
-	// Call TinyGo runtime init
-	// This will eventually call the domain's main()
-	runtimeDomainInit(domainID, domain.SyscallQ, domain.ReplyQ, domain.HeapStart, domain.HeapSize)
-
-	// If we return, domain exited
-	DomainKill(domainID)
-}
-
-func ConfigureDomainMPU(domain *Domain) {}
-
-func runtimeDomainInit(domainID DomainID, syscallQ unsafe.Pointer, replyQ unsafe.Pointer, heapStart uintptr, heapSize uint32) {
-}
-
-// Spawn a new domain
-func DomainSpawn(
-	name string,
-	codeAddr, codeSize uint32,
-	dataAddr, dataSize uint32,
-	entryPoint unsafe.Pointer,
-	priority uint8,
-) (DomainID, uint8) {
+// DomainSpawn registers a domain and launches its entry function as a goroutine.
+// heapSize reserves real memory from the Go GC heap; use the HeapTiny/Small/Medium
+// constants or supply a custom value. Pass nil entry to register without running.
+func DomainSpawn(name string, heapSize uint32, entry func(), priority uint8) (DomainID, uint8) {
+	// Allocate the domain's heap before taking the table lock — make() can block.
+	heap := make([]byte, heapSize)
 
 	spinLock(&domainTableLock)
 
-	// Find free slot
 	var slot int = -1
 	for i := 1; i < maxDomains; i++ {
 		if domainTable[i].State == DomainStateInvalid {
@@ -101,68 +44,32 @@ func DomainSpawn(
 			break
 		}
 	}
-
 	if slot == -1 {
 		spinUnlock(&domainTableLock)
 		return 0, ErrDomainTableFull
 	}
 
-	// Allocate domain ID
 	domainID := DomainID(slot)
-
-	// Allocate heap
-	heapSize := uint32(32 * 1024) // 32KB default
-	heapAddr := allocMemory(heapSize)
-	if heapAddr == 0 {
-		spinUnlock(&domainTableLock)
-		return 0, ErrOutOfMemory
-	}
-
-	// Create syscall queues
 	syscallQ := xQueueCreate(8, uint32(unsafe.Sizeof(SyscallRequest{})))
 	replyQ := xQueueCreate(8, uint32(unsafe.Sizeof(SyscallResponse{})))
 
-	// Initialize domain
 	domain := &domainTable[domainID]
 	domain.ID = domainID
 	domain.State = DomainStateRunning
 	domain.Priority = priority
 	domain.SyscallQ = unsafe.Pointer(syscallQ)
 	domain.ReplyQ = unsafe.Pointer(replyQ)
-	domain.HeapStart = heapAddr
+	domain.Heap = heap
+	domain.HeapStart = uintptr(unsafe.Pointer(&heap[0]))
 	domain.HeapSize = heapSize
 	domain.CapCount = 0
-
-	// Copy name
 	copy(domain.Name[:], name)
-
-	// Configure MPU regions
-	domain.MPURegion.Region0Addr = codeAddr
-	domain.MPURegion.Region0Size = codeSize
-	domain.MPURegion.Region1Addr = dataAddr
-	domain.MPURegion.Region1Size = dataSize
-	domain.MPURegion.Region2Addr = uint32(heapAddr)
-	domain.MPURegion.Region2Size = heapSize
 
 	spinUnlock(&domainTableLock)
 
-	// Create FreeRTOS task
-	var taskHandle TaskHandle_t
-	result := xTaskCreate(
-		nil,
-		cstring(name),
-		512, // Stack size (words)
-		unsafe.Pointer(uintptr(domainID)),
-		uint32(priority),
-		&taskHandle,
-	)
-
-	if result != pdPASS {
-		domain.State = DomainStateInvalid
-		return 0, ErrOutOfMemory
+	if entry != nil {
+		go entry()
 	}
-
-	domain.TaskHandle = unsafe.Pointer(taskHandle)
 
 	return domainID, ErrNone
 }

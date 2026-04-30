@@ -152,22 +152,18 @@ func handleCapRevoke(req *SyscallRequest) SyscallResponse {
 	return SyscallResponse{Result: int32(err), Error: err}
 }
 
-// Handle memory allocation
+// Handle memory allocation — allocates from the Go GC heap on behalf of a domain.
 func handleMemAlloc(req *SyscallRequest) SyscallResponse {
 	size := req.Arg0
-	addr := allocMemory(size)
-
-	if addr == 0 {
-		return SyscallResponse{
-			Result: -1,
-			Error:  ErrOutOfMemory,
-		}
+	if size == 0 {
+		return SyscallResponse{Result: -1, Error: ErrOutOfMemory}
 	}
-
-	return SyscallResponse{
-		Result: int32(addr),
-		Error:  ErrNone,
-	}
+	buf := make([]byte, size)
+	addr := uintptr(unsafe.Pointer(&buf[0]))
+	// Store the slice in the requesting domain so the GC doesn't collect it.
+	domain := &domainTable[req.DomainID]
+	domain.Heap = append(domain.Heap, buf...)
+	return SyscallResponse{Result: int32(addr), Error: ErrNone}
 }
 
 // Handle domain spawn

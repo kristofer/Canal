@@ -42,18 +42,19 @@ type Capability struct {
 
 // Domain state
 type Domain struct {
-    ID          DomainID
-    State       uint8
-    Priority    uint8
-    TaskHandle  unsafe.Pointer     // FreeRTOS task
-    SyscallQ    unsafe.Pointer     // Syscall request queue
-    ReplyQ      unsafe.Pointer     // Syscall response queue
-    MPURegion   MPUConfig
-    Caps        [16]CapabilityID   // Owned capabilities
-    CapCount    uint8
-    HeapStart   uintptr
-    HeapSize    uint32
-    Name        [16]byte
+	ID         DomainID
+	State      uint8
+	Priority   uint8
+	TaskHandle unsafe.Pointer   // FreeRTOS task handle (nil until IDF wired up)
+	SyscallQ   unsafe.Pointer   // Syscall request queue
+	ReplyQ     unsafe.Pointer   // Syscall response queue
+	MPURegion  MPUConfig
+	Caps       [16]CapabilityID // Owned capabilities
+	CapCount   uint8
+	Heap       []byte  // Keeps the domain's heap slice alive for the GC
+	HeapStart  uintptr // Address of Heap[0] — passed to MPU when isolation is added
+	HeapSize   uint32
+	Name       [16]byte
 }
 
 // Domain states
