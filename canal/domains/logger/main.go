@@ -4,37 +4,32 @@
 package main
 
 import (
-    "stdlib/fs"
-    "time"
+	"time"
+	"unsafe"
 )
 
+// domain_entry is called by the kernel's ELF loader via xTaskCreate.
+//
+//export domain_entry
+func domain_entry(domainID uint16, syscallQ, replyQ unsafe.Pointer) {
+	println("[Logger] Domain", domainID, "starting from flash")
+	runLogger()
+}
+
 func main() {
-    println("[Logger] Starting...")
+	println("[Logger] Standalone start")
+	runLogger()
+}
 
-    // Open log file (will be created if doesn't exist)
-    logFile, err := fs.OpenMode("/logs/system.log",
-        fs.ModeReadWrite | fs.ModeCreate | fs.ModeAppend)
-    if err != nil {
-        println("[Logger] Failed to open log:", err.Error())
-        return
-    }
-    defer logFile.Close()
+func runLogger() {
+	println("[Logger] Starting...")
 
-    println("[Logger] Log file opened")
-
-    // Write log entries
-    for {
-        timestamp := time.Now().Format("2006-01-02 15:04:05")
-        entry := timestamp + " [INFO] System running\n"
-
-        _, err := logFile.Write([]byte(entry))
-        if err != nil {
-            println("[Logger] Write error:", err.Error())
-        } else {
-            // Flush to disk
-            logFile.Sync()
-        }
-
-        time.Sleep(10 * time.Second)
-    }
+	ticker := 0
+	for {
+		ticker++
+		if ticker%10 == 0 {
+			println("[Logger] alive, tick:", ticker)
+		}
+		time.Sleep(10 * time.Second)
+	}
 }

@@ -74,6 +74,96 @@ func DomainSpawn(name string, heapSize uint32, entry func(), priority uint8) (Do
 	return domainID, ErrNone
 }
 
+// domainPartitions maps domain names to their flash partition offsets.
+// Must match build/targets/esp32s3/partitions.csv.
+// Each partition is 512KB (0x80000) to fit full TinyGo runtime binaries.
+var domainPartitions = map[string]uint32{
+	"led":    0x100000,
+	"wifi":   0x180000,
+	"logger": 0x200000,
+	"tls":    0x280000,
+	"sdcard": 0x300000,
+}
+
+// DomainParams is passed as pvParameters to the FreeRTOS task created for a
+// loaded domain.
+type DomainParams struct {
+	ID       DomainID
+	SyscallQ unsafe.Pointer
+	ReplyQ   unsafe.Pointer
+}
+
+// SpawnDomainFromFlash loads a domain ELF from its flash partition, copies
+// PT_LOAD segments into RAM, and creates a FreeRTOS task at the ELF entry
+// point. The entry point is expected to be domain_entry (see domain-linker.ld).
+func SpawnDomainFromFlash(name string, priority uint8) (DomainID, uint8) {
+	partOffset, ok := domainPartitions[name]
+	if !ok {
+		println("[Loader] unknown domain:", name)
+		return 0, ErrInvalidDomain
+	}
+
+	entryPoint, err := LoadDomain(partOffset)
+	if err != nil {
+		println("[Loader] load failed:", err.Error())
+		return 0, ErrInvalidDomain
+	}
+
+	// Allocate a kernel domain slot.
+	spinLock(&domainTableLock)
+	slot := -1
+	for i := 1; i < maxDomains; i++ {
+		if domainTable[i].State == DomainStateInvalid {
+			slot = i
+			break
+		}
+	}
+	if slot == -1 {
+		spinUnlock(&domainTableLock)
+		return 0, ErrDomainTableFull
+	}
+
+	domainID := DomainID(slot)
+	syscallQ := xQueueCreate(8, uint32(unsafe.Sizeof(SyscallRequest{})))
+	replyQ := xQueueCreate(8, uint32(unsafe.Sizeof(SyscallResponse{})))
+
+	d := &domainTable[domainID]
+	d.ID = domainID
+	d.State = DomainStateRunning
+	d.Priority = priority
+	d.SyscallQ = unsafe.Pointer(syscallQ)
+	d.ReplyQ = unsafe.Pointer(replyQ)
+	copy(d.Name[:], name)
+
+	spinUnlock(&domainTableLock)
+
+	params := &DomainParams{
+		ID:       domainID,
+		SyscallQ: unsafe.Pointer(syscallQ),
+		ReplyQ:   unsafe.Pointer(replyQ),
+	}
+
+	var taskHandle TaskHandle_t
+	result := xTaskCreate(
+		unsafe.Pointer(uintptr(entryPoint)),
+		cstring(name),
+		4096,
+		unsafe.Pointer(params),
+		uint32(priority),
+		&taskHandle,
+	)
+
+	if result != pdPASS {
+		domainTable[domainID].State = DomainStateInvalid
+		return 0, ErrDomainTableFull
+	}
+
+	domainTable[domainID].TaskHandle = unsafe.Pointer(taskHandle)
+
+	println("[Kernel] Domain", name, "loaded, entry:", entryPoint)
+	return domainID, ErrNone
+}
+
 // Kill a domain
 func DomainKill(domainID DomainID) uint8 {
 	if domainID >= DomainID(maxDomains) {

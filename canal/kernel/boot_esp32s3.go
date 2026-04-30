@@ -35,22 +35,8 @@ func app_main() {
 	InitSyscall()
 	println("Syscall handler ready")
 
-	println("Spawning domains...")
-
-	ledID, err := DomainSpawn("led-blinker", HeapTiny, ledDomainEntry, 2)
-	if err == ErrNone {
-		println("  [led-blinker] id:", ledID)
-	}
-
-	wifiID, err := DomainSpawn("wifi", HeapMedium, wifiDomainEntry, 2)
-	if err == ErrNone {
-		println("  [wifi]        id:", wifiID)
-	}
-
-	httpID, err := DomainSpawn("http-server", HeapMedium, httpDomainEntry, 2)
-	if err == ErrNone {
-		println("  [http-server] id:", httpID)
-	}
+	println("Loading domains from flash...")
+	bootDomains()
 
 	println("=== Boot Complete ===")
 	println("Free heap:", xPortGetFreeHeapSize()/1024, "KB")
@@ -61,10 +47,45 @@ func app_main() {
 	}
 }
 
+// ── Domain boot ──────────────────────────────────────────────────────────────
+
+// bootDomains tries to load each domain from its flash partition via the ELF
+// loader. If a partition doesn't contain a valid ELF (e.g. during development
+// before domains are flashed), it falls back to the in-kernel goroutine entry.
+func bootDomains() {
+	type domainDef struct {
+		name     string
+		heapSize uint32
+		fallback func()
+		priority uint8
+	}
+
+	domains := []domainDef{
+		{"led", HeapTiny, ledDomainEntry, 2},
+		{"wifi", HeapMedium, wifiDomainEntry, 2},
+		{"logger", HeapSmall, nil, 2},
+	}
+
+	for _, def := range domains {
+		id, errno := SpawnDomainFromFlash(def.name, def.priority)
+		if errno == ErrNone {
+			println("  [flash]", def.name, "id:", id)
+			continue
+		}
+		// Flash partition missing or invalid ELF — fall back to goroutine.
+		if def.fallback != nil {
+			id, errno = DomainSpawn(def.name, def.heapSize, def.fallback, def.priority)
+			if errno == ErrNone {
+				println("  [goroutine]", def.name, "id:", id)
+			}
+		} else {
+			println("  [skip]", def.name, "(no fallback)")
+		}
+	}
+}
+
 // ── Domain entry points ───────────────────────────────────────────────────────
-// Each function is the root goroutine for its domain.
-// Naming convention: <name>DomainEntry — maps to a FreeRTOS task entry in the
-// IDF build once we wire up real task creation.
+// Fallback goroutine roots used when flash partitions are not yet programmed.
 
 func ledDomainEntry() {
 	println("[LED Domain] Starting WS2812 on GPIO 48")
@@ -85,12 +106,13 @@ func ledDomainEntry() {
 
 	// R, G, B — ws2812Write sends GRB on the wire
 	colors := [][3]uint8{
-		{255, 0, 0},   // red
-		{0, 255, 0},   // green
-		{0, 0, 255},   // blue
-		{255, 80, 0},  // orange
-		{80, 0, 255},  // violet
-		{0, 0, 0},     // off
+		{255, 0, 0},  // red
+		{0, 255, 0},  // green
+		{255, 0, 0},  // red
+		{0, 0, 255},  // blue
+		{255, 80, 0}, // orange
+		{80, 0, 255}, // violet
+		{0, 0, 0},    // off
 	}
 	i := 0
 	for {
@@ -108,18 +130,6 @@ func wifiDomainEntry() {
 		ticker++
 		if ticker%10 == 0 {
 			println("[WiFi Domain] alive, tick:", ticker)
-		}
-		vTaskDelay(500)
-	}
-}
-
-func httpDomainEntry() {
-	println("[HTTP Domain] Starting")
-	ticker := 0
-	for {
-		ticker++
-		if ticker%10 == 0 {
-			println("[HTTP Domain] alive, tick:", ticker)
 		}
 		vTaskDelay(500)
 	}

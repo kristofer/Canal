@@ -5,11 +5,25 @@ package main
 import (
 	"machine"
 	"time"
+	"unsafe"
 )
 
-func main() {
-	println("[LED] Starting WS2812 on GPIO 48")
+// domain_entry is called by the kernel's ELF loader via xTaskCreate.
+// It runs in a FreeRTOS task context with no TinyGo runtime init, so it
+// must not use goroutines or the GC. It calls the domain's main loop directly.
+//
+//export domain_entry
+func domain_entry(domainID uint16, syscallQ, replyQ unsafe.Pointer) {
+	println("[LED] Domain", domainID, "starting from flash")
+	runLED()
+}
 
+func main() {
+	println("[LED] Standalone start")
+	runLED()
+}
+
+func runLED() {
 	err := machine.SPI0.Configure(machine.SPIConfig{
 		Frequency: 3_200_000,
 		Mode:      0,
