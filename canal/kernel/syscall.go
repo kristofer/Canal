@@ -26,10 +26,9 @@ func InitSyscall() {
 	}
 }
 
-// syscallHandlerTrampoline is the C-callable FreeRTOS task entry that wraps
-// SyscallHandler. Marking it with the export pragma gives it C linkage so
-// xTaskCreate can invoke it with the standard void(*)(void*) calling convention.
-//export syscallHandlerTrampoline
+// syscallHandlerTrampoline is the FreeRTOS task entry that wraps SyscallHandler.
+// It must not carry the //export pragma: TinyGo forbids using exported functions
+// as values, and InitSyscall() takes its address to pass to xTaskCreate.
 func syscallHandlerTrampoline(params unsafe.Pointer) { SyscallHandler(params) }
 
 // Syscall handler task
