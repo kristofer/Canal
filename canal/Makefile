@@ -11,7 +11,7 @@ SHELL := /bin/bash
 
 TINYGO        ?= tinygo
 TINYGO_TARGET ?= esp32s3-generic
-USE_IDF       ?= 0          # set to 1 to link against ESP-IDF FreeRTOS
+USE_IDF       ?= 1          # link against ESP-IDF FreeRTOS (required for flash domain loading)
 BAUD          ?= 115200
 
 KERNEL_DIR  := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))kernel
@@ -185,6 +185,7 @@ help:
 	@echo "Variables (override on command line):"
 	@echo "  PORT=$(PORT)"
 	@echo "  TINYGO_TARGET=$(TINYGO_TARGET)"
-	@echo "  USE_IDF=$(USE_IDF)   (1 = link real FreeRTOS via ESP-IDF)"
+	@echo "  USE_IDF=$(USE_IDF)   (default 1: link real FreeRTOS via ESP-IDF for flash domain loading)"
+	@echo "                      (set to 0 to disable IDF — goroutine fallbacks only, no flash loading)"
 	@echo "  BAUD=$(BAUD)"
 	@echo ""
