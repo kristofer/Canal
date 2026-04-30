@@ -7,12 +7,30 @@ import (
 )
 
 var kernelSyscallQ QueueHandle_t
+var syscallTaskHandle TaskHandle_t
 
-// Initialize syscall system
+// Initialize syscall system and spawn the handler task.
 func InitSyscall() {
-	// Create kernel syscall queue
 	kernelSyscallQ = xQueueCreate(32, uint32(unsafe.Sizeof(SyscallRequest{})))
+	fn := syscallHandlerTrampoline
+	result := xTaskCreate(
+		*(*unsafe.Pointer)(unsafe.Pointer(&fn)),
+		cstring("syscall"),
+		4096,
+		nil,
+		3, // higher priority than domain tasks
+		&syscallTaskHandle,
+	)
+	if result != pdPASS {
+		panic("canal: failed to spawn syscall handler task")
+	}
 }
+
+// syscallHandlerTrampoline is the C-callable FreeRTOS task entry that wraps
+// SyscallHandler. Marking it with the export pragma gives it C linkage so
+// xTaskCreate can invoke it with the standard void(*)(void*) calling convention.
+//export syscallHandlerTrampoline
+func syscallHandlerTrampoline(params unsafe.Pointer) { SyscallHandler(params) }
 
 // Syscall handler task
 func SyscallHandler(params unsafe.Pointer) {
