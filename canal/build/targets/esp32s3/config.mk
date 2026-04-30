@@ -16,7 +16,7 @@ FLASH_COMMAND := esptool \
 	--chip esp32s3 \
 	--port $(PORT) \
 	--baud 921600 \
-	write_flash \
+	write-flash \
 	$(KERNEL_ADDR)  $(OUT_DIR)/kernel.bin \
 	$(LED_ADDR)     $(OUT_DIR)/led.elf \
 	$(WIFI_ADDR)    $(OUT_DIR)/wifi.elf \

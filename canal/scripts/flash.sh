@@ -51,7 +51,7 @@ echo ""
 
 # ── Prereqs ───────────────────────────────────────────────────────────────────
 command -v tinygo    >/dev/null || { echo "error: tinygo not found"; exit 1; }
-command -v esptool.py >/dev/null || { echo "error: esptool.py not found (pip install esptool)"; exit 1; }
+command -v esptool >/dev/null || { echo "error: esptool not found (pip install esptool)"; exit 1; }
 
 mkdir -p "$OUT_DIR"
 
@@ -61,8 +61,8 @@ if [ "$LED_ONLY" -eq 1 ]; then
     make -C "$CANAL_DIR" led
     echo ""
     echo "Flashing LED domain to $PORT at $LED_ADDR..."
-    esptool.py --chip $CHIP --port "$PORT" --baud $BAUD \
-        write_flash $LED_ADDR "$OUT_DIR/led.elf"
+    esptool --chip $CHIP --port "$PORT" --baud $BAUD \
+        write-flash $LED_ADDR "$OUT_DIR/led.elf"
     echo ""
     echo "LED domain flashed — reset the board to apply."
     exit 0
@@ -103,8 +103,8 @@ echo "  wifi   -> $WIFI_ADDR"
 echo "  logger -> $LOGGER_ADDR"
 echo ""
 
-esptool.py --chip $CHIP --port "$PORT" --baud $BAUD \
-    write_flash \
+esptool --chip $CHIP --port "$PORT" --baud $BAUD \
+    write-flash \
     $LED_ADDR    "$OUT_DIR/led.elf" \
     $WIFI_ADDR   "$OUT_DIR/wifi.elf" \
     $LOGGER_ADDR "$OUT_DIR/logger.elf"
