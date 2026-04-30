@@ -12,7 +12,7 @@ LOGGER_ADDR  := 0x200000
 TLS_ADDR     := 0x280000
 SDCARD_ADDR  := 0x300000
 
-FLASH_COMMAND := esptool.py \
+FLASH_COMMAND := esptool \
 	--chip esp32s3 \
 	--port $(PORT) \
 	--baud 921600 \
