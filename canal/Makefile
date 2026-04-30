@@ -1,9 +1,11 @@
 # Canal — capability microkernel for ESP32-S3
 # Usage:
-#   make flash          build + flash (auto-detects port)
-#   make flash PORT=…   flash to a specific port
+#   make flash          build + flash kernel only (auto-detects port)
+#   make flash PORT=…   flash kernel to a specific port
+#   make flash-domains  build + flash all domain binaries
+#   make flash-all      flash kernel then all domains (full install)
 #   make monitor        open serial monitor
-#   make run            flash then monitor
+#   make run            flash kernel + domains, then monitor (full workflow)
 #   make build          build only (no flash)
 #   make clean
 
@@ -148,9 +150,12 @@ monitor: _check_port
 	@echo "Monitoring $(PORT) at $(BAUD) baud  (Ctrl-] to quit)"
 	python3 -m serial.tools.miniterm --dtr 0 --rts 0 $(PORT) $(BAUD)
 
-# flash then immediately monitor (the board re-enumerates, so wait briefly)
+# Flash kernel + domains, then immediately monitor.
+# NOTE: tinygo flash (used by the 'flash' target) erases the entire chip, so
+# domains must always be re-flashed after the kernel.  'run' does both steps
+# in sequence so the device is in a consistent state before the monitor opens.
 run: _check_tinygo _check_port
-	@$(MAKE) --no-print-directory flash PORT=$(PORT)
+	@$(MAKE) --no-print-directory flash-all PORT=$(PORT)
 	@echo "Waiting for device to re-enumerate..."
 	@sleep 2
 	@NEW_PORT=$$(ls /dev/cu.usbmodem* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | head -1); \
@@ -177,7 +182,7 @@ help:
 	@echo "  make flash-logger     rebuild + flash Logger domain only"
 	@echo ""
 	@echo "  make monitor          open serial monitor"
-	@echo "  make run              flash kernel + monitor"
+	@echo "  make run              flash kernel + domains + monitor (full workflow)"
 	@echo "  make clean            remove build artifacts"
 	@echo ""
 	@echo "  scripts/flash.sh [PORT] [--domains-only] [--led-only]"
