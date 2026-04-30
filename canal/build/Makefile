@@ -1,108 +1,58 @@
-# Canal ESP32-S3 Build System
+# Canal ESP32-S3 build system (internal — prefer the top-level Makefile)
+# Run from the repo root: cd .. && make flash
 
 SHELL := /bin/bash
 
-TINYGO := tinygo
-TARGET := esp32s3
+TINYGO        ?= tinygo
 TINYGO_TARGET ?= esp32s3-generic
-IDF_PATH := $(HOME)/esp/esp-idf
-OUT_DIR := out
-PORT ?= /dev/cu.usbmodem1101
-BAUD ?= 921600
 USE_IDF_FREERTOS ?= 0
 
-ifeq ($(USE_IDF_FREERTOS),1)
-EXTRA_TAGS := -tags=idf
+ifeq ($(shell uname),Darwin)
+PORT ?= $(firstword $(wildcard /dev/cu.usbmodem*))
 else
-EXTRA_TAGS :=
+PORT ?= $(firstword $(wildcard /dev/ttyUSB* /dev/ttyACM*))
 endif
 
-IDF_EXPORT := source $(IDF_PATH)/export.sh >/dev/null 2>&1
+BAUD ?= 115200
+OUT_DIR := out
 
-# Kernel
-KERNEL_SRC := kernel/boot_esp32s3.go \
-              kernel/captable.go \
-              kernel/domain.go \
-              kernel/syscall.go \
-              kernel/hal/xtensa/mmu.go
-
-# Domains
-WIFI_SRC := domains/wifi/main.go \
-            domains/wifi/driver.go \
-            domains/wifi/protocol.go
-
-HTTP_SRC := domains/http-server/main.go
-
-LED_SRC := domains/led-blinker/main.go
+ifeq ($(USE_IDF_FREERTOS),1)
+EXTRA_TAGS  := -tags=idf
+IDF_PATH    := $(HOME)/esp/esp-idf
+IDF_EXPORT  := source $(IDF_PATH)/export.sh >/dev/null 2>&1 &&
+else
+EXTRA_TAGS  :=
+IDF_EXPORT  :=
+endif
 
 all: kernel
 
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
 
-# kernel:
-# 	@echo "Building kernel..."
-# 	$(TINYGO) build \
-# 		-target=$(TARGET) \
-# 		-opt=2 \
-# 		-o build/kernel.elf \
-# 		$(KERNEL_SRC)
-
 kernel: $(OUT_DIR)
-
 ifeq ($(USE_IDF_FREERTOS),1)
-	@echo "Building kernel via ESP-IDF component path..."
-	cd idf-app && $(IDF_EXPORT) && idf.py build
+	@echo "Building kernel via ESP-IDF..."
+	cd idf-app && $(IDF_EXPORT) idf.py build
 	cp -f idf-app/build/canal_idf_bridge.elf $(OUT_DIR)/kernel.elf
 	cp -f idf-app/build/canal_idf_bridge.bin $(OUT_DIR)/kernel.bin
 else
-	@echo "Building kernel..."
-	cd ../kernel && $(IDF_EXPORT) && $(TINYGO) build \
+	@echo "Building kernel (baremetal TinyGo)..."
+	cd ../kernel && $(TINYGO) build \
 		-target=$(TINYGO_TARGET) \
 		-opt=2 \
 		$(EXTRA_TAGS) \
 		-o ../build/$(OUT_DIR)/kernel.elf \
 		./cmd/esp32s3
-	cd ../kernel && $(IDF_EXPORT) && $(TINYGO) build \
-		-target=$(TINYGO_TARGET) \
-		-opt=2 \
-		$(EXTRA_TAGS) \
-		-o ../build/$(OUT_DIR)/kernel.bin \
-		./cmd/esp32s3
 endif
 
-wifi: $(OUT_DIR)
-	@echo "Building WiFi domain..."
-	cd ../domains/wifi && $(IDF_EXPORT) && $(TINYGO) build \
-		-target=$(TINYGO_TARGET) \
-		-opt=2 \
-		-o ../../build/$(OUT_DIR)/wifi.elf \
-		./cmd/esp32s3
-
-http: $(OUT_DIR)
-	@echo "Building HTTP server domain..."
-	cd ../domains/http-server && $(IDF_EXPORT) && $(TINYGO) build \
-		-target=$(TINYGO_TARGET) \
-		-opt=2 \
-		-o ../../build/$(OUT_DIR)/http-server.elf \
-		.
-
-led: $(OUT_DIR)
-	@echo "Building LED domain..."
-	cd ../domains/led-blinker && $(IDF_EXPORT) && $(TINYGO) build \
-		-target=$(TINYGO_TARGET) \
-		-opt=2 \
-		-o ../../build/$(OUT_DIR)/led-blinker.elf \
-		.
-
 flash: kernel
-
+	@[ -n "$(PORT)" ] || { echo "error: no port found"; exit 1; }
 ifeq ($(USE_IDF_FREERTOS),1)
-	@echo "Flashing kernel via ESP-IDF..."
-	cd idf-app && $(IDF_EXPORT) && idf.py -p $(PORT) flash
+	cd idf-app && $(IDF_EXPORT) idf.py -p $(PORT) flash
 else
-	@echo "Flashing kernel to ESP32-S3 with TinyGo..."
-	cd ../kernel && $(IDF_EXPORT) && $(TINYGO) flash \
+	@echo "Flashing to $(PORT)..."
+	cd ../kernel && $(TINYGO) flash \
 		-target=$(TINYGO_TARGET) \
 		$(EXTRA_TAGS) \
 		-port=$(PORT) \
@@ -110,14 +60,14 @@ else
 endif
 
 monitor:
-
+	@[ -n "$(PORT)" ] || { echo "error: no port found"; exit 1; }
 ifeq ($(USE_IDF_FREERTOS),1)
-	cd idf-app && $(IDF_EXPORT) && idf.py -p $(PORT) monitor
+	cd idf-app && $(IDF_EXPORT) idf.py -p $(PORT) monitor
 else
-	$(IDF_EXPORT) && $(TINYGO) monitor -target=$(TINYGO_TARGET) -port=$(PORT)
+	python3 -m serial.tools.miniterm --dtr 0 --rts 0 $(PORT) $(BAUD)
 endif
 
 clean:
 	rm -rf $(OUT_DIR)
 
-.PHONY: all kernel wifi http led flash monitor clean
+.PHONY: all kernel flash monitor clean
