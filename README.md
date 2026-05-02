@@ -19,8 +19,8 @@ A planned series of articles covering Canal and its companion language
 
 | # | Article |
 |---|---------|
-| 1 | The ESP32-S3 System: Hardware Meets Software |
-| 2 | picoceci: A Language Built for Tiny Machines |
+| 1 | [The ESP32-S3 System: Hardware Meets Software](docs/articles/01-esp32s3-hardware-meets-software.md) |
+| 2 | [picoceci: A Language Built for Tiny Machines](docs/articles/02-picoceci-a-language-for-tiny-machines.md) |
 | 3 | Canal and FreeRTOS: Running Go on Bare Metal |
 | 4 | picoceci on Canal: Programming the Microkernel |
 | 5 | Build a Programming Learning Environment on Canal |
