@@ -166,10 +166,44 @@ clean:
 	rm -rf build/out
 	@echo "Cleaned build/out"
 
+# ── picoceci domain ──────────────────────────────────────────────────────────
+
+PICOCECI_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))domains/picoceci
+
+.PHONY: picoceci picoceci-flash picoceci-run
+
+picoceci: _check_tinygo
+	@echo "Building picoceci domain (target=$(TINYGO_TARGET))..."
+	$(TINYGO) build \
+		-target=$(TINYGO_TARGET) \
+		-opt=2 \
+		-gc=leaking \
+		-o build/out/picoceci.elf \
+		$(PICOCECI_DIR)
+	@echo "Built: build/out/picoceci.elf"
+
+picoceci-flash: _check_tinygo _check_port
+	@echo "Flashing picoceci to $(PORT)..."
+	$(TINYGO) flash \
+		-target=$(TINYGO_TARGET) \
+		-opt=2 \
+		-gc=leaking \
+		-port=$(PORT) \
+		$(PICOCECI_DIR)
+
+picoceci-run: _check_tinygo _check_port
+	@$(MAKE) --no-print-directory picoceci-flash PORT=$(PORT)
+	@echo "Waiting for device to re-enumerate..."
+	@sleep 2
+	@NEW_PORT=$$(ls /dev/cu.usbmodem* /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | head -1); \
+	echo "Monitoring $$NEW_PORT at $(BAUD) baud  (Ctrl-] to quit)"; \
+	python3 -m serial.tools.miniterm --dtr 0 --rts 0 $$NEW_PORT $(BAUD)
+
 help:
 	@echo ""
 	@echo "Canal build system"
 	@echo ""
+	@echo "Kernel targets:"
 	@echo "  make build            compile kernel only"
 	@echo "  make build-domains    compile all domain binaries (led, wifi, logger)"
 	@echo "  make led/wifi/logger  compile a single domain"
@@ -184,6 +218,11 @@ help:
 	@echo "  make monitor          open serial monitor"
 	@echo "  make run              flash kernel + domains + monitor (full workflow)"
 	@echo "  make clean            remove build artifacts"
+	@echo ""
+	@echo "Picoceci domain targets:"
+	@echo "  make picoceci       build picoceci domain"
+	@echo "  make picoceci-flash flash picoceci to device"
+	@echo "  make picoceci-run   flash + monitor picoceci"
 	@echo ""
 	@echo "  scripts/flash.sh [PORT] [--domains-only] [--led-only]"
 	@echo ""
