@@ -13,9 +13,9 @@ to serve as a standalone reference.
 |---|-------|-------|
 | 1 | [The ESP32-S3 System: Hardware Meets Software](articles/01-esp32s3-hardware-meets-software.md) | Hardware platform overview |
 | 2 | [picoceci: A Language Built for Tiny Machines](articles/02-picoceci-a-language-for-tiny-machines.md) | Language design and usage |
-| 3 | [Canal and FreeRTOS: Running Go on Bare Metal](#article-3) | OS/runtime architecture |
-| 4 | [picoceci on Canal: Programming the Microkernel](#article-4) | Integration and capabilities |
-| 5 | [Build a Programming Learning Environment on Canal](#article-5) | End-to-end project tutorial |
+| 3 | [Canal and FreeRTOS: Running Go on Bare Metal](articles/03-canal-and-freertos-go-on-bare-metal.md) | OS/runtime architecture |
+| 4 | [picoceci on Canal: Programming the Microkernel](articles/04-picoceci-on-canal-programming-the-microkernel.md) | Integration and capabilities |
+| 5 | [Build a Programming Learning Environment on Canal](articles/05-build-a-programming-learning-environment.md) | End-to-end project tutorial |
 
 ---
 
