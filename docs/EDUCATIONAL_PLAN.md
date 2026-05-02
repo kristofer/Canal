@@ -62,6 +62,29 @@ what the chip provides and which parts Canal relies on.
    - Bootloader → Canal kernel → system domains → user domains
    - Diagram of the full software stack
 
+**Exercises**
+
+1. The ESP32-S3 has two Xtensa LX7 cores. Name two advantages this gives Canal over a
+   single-core microcontroller when running multiple isolated domains simultaneously.
+
+2. Draw a simple ASCII diagram that shows the four memory regions available on the
+   ESP32-S3 (internal SRAM, IRAM, PSRAM, and flash) and note the typical size of each.
+   Explain in one sentence why Canal maps user-domain heaps into PSRAM rather than
+   internal SRAM.
+
+3. Explain the role of the PID controller in Canal's security model. How does hardware
+   tagging of memory accesses prevent one domain from reading another domain's data, even
+   if a bug in that domain constructs an arbitrary pointer?
+
+4. Trace the boot sequence from power-on to a running user domain by listing each layer
+   in order (bootloader, Canal kernel, system domains, user domain) and writing one
+   sentence describing what each layer sets up before passing control to the next.
+
+5. Suppose a student has an Arduino background and asks "why can't I just use
+   `malloc` everywhere?" Write a two-paragraph explanation—suitable for that student—of
+   why Canal enforces per-domain memory budgets and what could go wrong on a
+   microcontroller without that discipline.
+
 ---
 
 ## Article 2
@@ -113,6 +136,25 @@ experience in any language.
    - Flashing the interpreter binary
    - Connecting to the REPL (USB serial)
    - Writing and loading a first program
+
+**Exercises**
+
+1. picoceci draws design ideas from Forth, Scheme, Go, and Logo. Choose any two of those
+   languages and write a short paragraph for each explaining which specific picoceci
+   feature reflects that influence and why the designers likely borrowed it.
+
+2. Open (or imagine) a picoceci REPL session. Write a short program that:
+   - Defines a function called `square` that returns the square of its argument.
+   - Uses `square` inside a loop to print the squares of 1 through 5.
+   Label each line with a comment explaining what it does.
+
+3. picoceci uses "deterministic memory" (static arena or region-based allocation).
+   Compare this to garbage collection: list one benefit and one drawback of each
+   approach in the context of a microcontroller with 512 KB of RAM.
+
+4. Explain what "hot-loadable definitions" means in the context of picoceci. Describe a
+   practical development scenario where being able to redefine a function without
+   rebooting the board would save significant time.
 
 ---
 
@@ -167,6 +209,29 @@ Canal's internals.
    - Makefile targets and what they do
    - Flashing and debugging workflow
 
+**Exercises**
+
+1. In Canal, FreeRTOS tasks are the underlying mechanism, but user domains never call
+   FreeRTOS APIs directly. Explain why hiding the FreeRTOS surface is a deliberate
+   design choice. What security property would be lost if user domains could call
+   `xTaskCreate` themselves?
+
+2. TinyGo's garbage collector runs per-domain rather than globally. Sketch (in prose or
+   pseudocode) how a GC pause in Domain A could affect Domain B, and then explain why
+   Canal's per-domain GC prevents this problem.
+
+3. Describe what is stored in Canal's capability table for a domain that has been granted
+   `service:wifi`. What happens—step by step—when that domain's capability is revoked
+   while a WiFi operation is in flight?
+
+4. The article mentions a zero-copy optimization for inter-domain messages. Explain what
+   "zero-copy" means in this context, under what conditions Canal can safely use it, and
+   why a naïve implementation without capability checking would be a security hole.
+
+5. Draw a sequence diagram (ASCII or prose) showing the full message flow described in
+   the article: WiFi domain → TLS domain → HTTP domain. For each arrow, note which
+   capability is exercised and what data crosses the domain boundary.
+
 ---
 
 ## Article 4
@@ -220,6 +285,30 @@ for real tasks on Canal.
 6. Limitations and safety model
    - What picoceci cannot do (no raw memory access, no capability escalation)
    - How a crashed script is sandboxed from the rest of the system
+
+**Exercises**
+
+1. A picoceci script wants to read a GPIO pin, write the result to a file on the SD card,
+   and publish the value over MQTT. List the three capabilities the domain manifest must
+   declare, and explain what would happen at runtime if any one of those capabilities
+   were missing.
+
+2. Write a short picoceci pseudo-program that opens a channel to the WiFi service domain,
+   sends a connect request, waits for the acknowledgement, and closes the channel on
+   error. Add inline comments explaining how each channel operation maps to the
+   underlying Canal IPC mechanism described in the article.
+
+3. The article describes "hot-patching a running program without rebooting." Identify two
+   situations where hot-patching would be unsafe and explain what guards Canal puts in
+   place to prevent those situations (or what the programmer must do manually).
+
+4. Compare the capability model for picoceci scripts to the UNIX permission model
+   (read/write/execute bits). Give one example of a security guarantee the Canal
+   capability model provides that UNIX file permissions cannot express.
+
+5. Trace through the "Fetch a URL over HTTPS" worked example step by step, identifying
+   every domain boundary crossed and every capability exercised. What is the minimum set
+   of capabilities a picoceci domain needs to complete this task?
 
 ---
 
@@ -287,6 +376,32 @@ background knowledge.
    - Board not detected over USB
    - Flash partition errors
    - REPL not responding
+
+**Exercises**
+
+1. You are setting up a classroom with 20 ESP32-S3 boards. Write a brief checklist
+   (5–8 items) that ensures each board is correctly flashed and ready for students
+   before the first lesson. Include at least one verification step for each of:
+   hardware connection, firmware version, and REPL availability.
+
+2. A student's picoceci script crashes with a "capability denied" error when trying to
+   blink an LED. Walk through the debugging steps you would take, in order, to identify
+   whether the problem is (a) a missing capability in the domain manifest, (b) a
+   typo in the GPIO pin number, or (c) a hardware wiring error.
+
+3. The safety model section explains that a crashed student domain cannot affect other
+   domains. Design a short experiment a student could run to verify this claim: describe
+   the setup, the deliberate crash to trigger, and the observation that proves isolation
+   held.
+
+4. After completing Lesson 3 (channels and concurrency), a student asks: "This looks
+   like Go goroutines—are they the same?" Write a two-paragraph answer that explains the
+   similarities and the key differences between picoceci channel tasks and Go goroutines
+   in the standard runtime.
+
+5. Describe how you would extend the learning environment with a custom domain that
+   exposes a simple key-value store capability. What capability name would you register,
+   what messages would the domain accept, and how would a picoceci script use it?
 
 ---
 
