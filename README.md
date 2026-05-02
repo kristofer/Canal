@@ -12,3 +12,20 @@ make flash                 # auto-detects /dev/cu.usbmodem*
 make run                   # flash + open monitor in one step
 ```
 
+## 📚 Educational Materials
+
+A planned series of articles covering Canal and its companion language
+[picoceci](https://github.com/kristofer/picoceci):
+
+| # | Article |
+|---|---------|
+| 1 | The ESP32-S3 System: Hardware Meets Software |
+| 2 | picoceci: A Language Built for Tiny Machines |
+| 3 | Canal and FreeRTOS: Running Go on Bare Metal |
+| 4 | picoceci on Canal: Programming the Microkernel |
+| 5 | Build a Programming Learning Environment on Canal |
+
+See **[docs/EDUCATIONAL_PLAN.md](docs/EDUCATIONAL_PLAN.md)** for the full plan,
+including learning objectives, key topics, target audience, and production notes for
+each article.
+
