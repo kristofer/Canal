@@ -1,4 +1,4 @@
-# Article 2: picoceci — A Language Built for Tiny Machines
+# Article 2: picoceci — A Smalltalk-syntax, Go-semantics Language for Microcontrollers
 
 > **Canal version**: 0.1.0-dev | **picoceci version**: 0.1.0-dev
 > **Target audience**: Developers curious about embedded scripting and language design;
@@ -17,10 +17,12 @@ production firmware, but it is a poor fit for interactive exploration, education
 rapid prototyping on live hardware.
 
 **picoceci** solves this by providing a scripting language designed to run *inside* a
-Canal domain on the ESP32-S3. It gives you an interactive REPL (Read-Eval-Print Loop)
-over USB serial, a compact bytecode compiler/VM, and first-class support for Canal's
-channel-based inter-domain communication—all within the tight memory budget of a
-microcontroller.
+Canal domain on the ESP32-S3. It is described as "a small, high-protein language" — a
+**Smalltalk-syntax, Go-semantics** interpreted language designed for microcontrollers.
+picoceci gives you an interactive REPL (Read-Eval-Print Loop) over USB serial,
+a message-passing object model, and first-class access to Canal's capability-based
+inter-domain communication and FreeRTOS concurrency primitives — all within the tight
+memory budget of a microcontroller.
 
 This article covers:
 
@@ -37,147 +39,525 @@ This article covers:
 Before designing picoceci, the Canal team considered existing options:
 
 - **MicroPython** — mature, widely used, but its reference-counting GC and large runtime
-  footprint push the memory budget uncomfortably. Python's dynamic typing means many
-  errors surface only at runtime in ways that are hard to explain to beginners.
+  footprint push the memory budget uncomfortably. Python syntax can also hide the
+  message-passing model that maps naturally onto Canal capabilities.
 - **Lua** — lighter than Python, but the standard Lua VM still assumes a conventional OS
   heap and does not integrate cleanly with Canal's capability model.
 - **JavaScript (e.g., Espruino / Duktape)** — interactive REPL is great, but heap
   fragmentation is a real concern over long run-times on small devices.
-- **Forth** — runs on almost nothing, but its stack-based syntax is famously
+- **Forth** — runs on almost nothing, but its postfix stack-based syntax is famously
   unapproachable for programmers who have not seen it before.
 
 None of these hit the exact target: a language that is *resource-safe*, *teachable*,
-*interactive*, and *natively expressive of Canal's concurrency model*.
+*interactive*, and whose object/message model *maps naturally* onto Canal's capability
+objects and FreeRTOS concurrency primitives.
 
 ### The Three Constraints
 
 **1. Tight resource budget.**
-The picoceci domain on the ESP32-S3 is allocated a `HeapMedium` (32 KB) heap by default.
-The bytecode representation must be compact enough to fit in the remaining flash budget,
-and the runtime must not rely on unbounded heap growth.
+The picoceci interpreter and runtime must fit in less than 128 KB of RAM on the
+ESP32-S3-N16R8. The bytecode representation must be compact enough to fit in the
+remaining flash budget, and the runtime must not rely on unbounded heap growth.
 
-**2. Safety without a full type system.**
+**2. Safety without raw pointers.**
 A crashed picoceci script must not corrupt the Canal kernel, other domains, or the
-interpreter itself. Canal's MMU and capability model enforce this at the hardware level,
-but the language design reinforces it: there is no raw pointer arithmetic, no way to call
-arbitrary C functions, and no way to forge a capability.
+interpreter itself. Canal's capability model enforces this at the kernel level, and
+picoceci reinforces it: there is no raw pointer arithmetic, no way to call arbitrary C
+functions, and no way to forge a capability handle.
 
-**3. Easy to teach and fun on hardware.**
-The target audience includes students and hobbyists encountering embedded programming for
-the first time. Syntax should be forgiving, feedback should be immediate (hence the REPL),
-and real hardware results (blinking LEDs, network requests) should be reachable in the
-first lesson.
+**3. Familiar, composable, and concurrent.**
+The syntax should feel familiar to programmers who have seen Smalltalk or Ruby. The
+object model should favour composition over inheritance (like Go's interfaces and
+embedding). Concurrency should be first-class and map directly onto FreeRTOS tasks,
+queues, and semaphores via TinyGo.
 
 ---
 
 ## 2. Influences
 
-picoceci draws deliberately from four languages. Understanding these influences helps you
-read picoceci code and reason about its design trade-offs.
+picoceci draws deliberately from two primary sources. Understanding these influences
+helps you read picoceci code and reason about its design trade-offs.
 
-### 2.1 Forth — Stack Discipline and a Tiny Interpreter
+### 2.1 Smalltalk — Syntax and Message-Passing
 
-Forth is a language from the early 1970s that has never died, precisely because its interpreter
-is tiny (kilobytes) and its execution model maps directly onto a stack machine. picoceci
-borrows Forth's idea of *words* (named, reusable operations) and a compact bytecode
-representation that fits comfortably in flash.
+Smalltalk pioneered the idea that *everything is an object* and all computation is
+*sending messages*. picoceci borrows Smalltalk's elegant three-level message grammar:
 
-What picoceci does *not* borrow is Forth's post-fix syntax. Most programmers find
-`3 4 +` harder to read than `3 + 4`, and since picoceci aims to be teachable, it uses a
-more conventional notation.
+| Level | Form | Example |
+|-------|------|---------|
+| Unary | receiver message | `42 factorial` |
+| Binary | receiver op arg | `3 + 4` |
+| Keyword | receiver key: arg … | `dict at: #key put: value` |
 
-### 2.2 Scheme / Lisp — First-Class Functions and Minimal Syntax
+picoceci also inherits Smalltalk's **blocks** — first-class closures written as
+`[ :arg | expression ]` — which provide a uniform mechanism for control flow,
+iteration, and deferred computation.
 
-Scheme demonstrated that a powerful language can have a very small core. picoceci shares
-Scheme's commitment to first-class functions and minimal special forms. A picoceci
-function is a value that can be passed around, stored in a variable, or returned from
-another function—without any extra ceremony.
+Comments in picoceci use Smalltalk's double-quote style:
 
-The influence of *homoiconicity* (code-as-data) is visible in picoceci's list literals,
-which are valid program fragments that can be manipulated at runtime.
+```picoceci
+"This is a comment — ignored by the parser."
+```
 
-### 2.3 Go — Channel-Based Concurrency
+What picoceci does *not* borrow is Smalltalk's class hierarchy and inheritance. Instead
+it adopts Go's philosophy of *composition over inheritance*.
 
-Go popularized the CSP (Communicating Sequential Processes) model in mainstream
-programming: instead of shared memory and locks, goroutines communicate through typed
-channels. picoceci adopts this model directly, mapping its channels onto the Canal IPC
-primitives described in Article 1.
+### 2.2 Go — Semantics, Interfaces, and Concurrency
 
-This is not accidental: Canal itself is written in Go (TinyGo), and its kernel IPC is
-already built around FreeRTOS queues exposed as Go channels. picoceci scripts talk to
-Canal system services through the same channel abstraction, so the mental model is
-consistent all the way down.
+Go contributes the *semantics* of picoceci:
 
-### 2.4 Logo / Smalltalk — Learner-Friendly, Interactive REPL
+- **Structural typing** — an object satisfies an interface if it responds to all the
+  required messages, with no explicit `implements` declaration.
+- **Composition over inheritance** — objects are assembled from other objects using
+  `compose`, mirroring Go's struct embedding.
+- **Concurrency via channels and queues** — picoceci exposes FreeRTOS primitives
+  (`Task`, `Queue`, `Semaphore`, `Channel`) that mirror Go's goroutines and channels.
 
-Logo (best known for its turtle graphics) proved that beginners engage more deeply when
-they get *immediate visual feedback* from their code. Smalltalk showed that a live,
-image-based environment where you can inspect and redefine any object at runtime is
-profoundly productive.
-
-picoceci channels this spirit through its REPL: every definition is immediately callable,
-results print automatically, and errors display with enough context to be informative
-rather than cryptic.
+This alignment with Go is intentional: Canal itself is implemented in TinyGo, and the
+kernel IPC is already built around FreeRTOS queues. picoceci scripts use the same
+conceptual abstractions as the kernel around them.
 
 ---
 
 ## 3. Distinctive Features
 
-### 3.1 Compact Bytecode
+### 3.1 Message-Passing Object Model
 
-picoceci source is compiled to a compact bytecode format before execution. The compiler
-is available on-device, so the REPL compiles each line as you type it. Bytecode chunks
-fit comfortably in flash (typically a few hundred bytes for a simple program) and the
-VM's instruction dispatch loop is small enough to sit in the ESP32-S3's IRAM, keeping
-interpretation fast.
+Every operation in picoceci is a *message send*. There are no standalone functions — only
+objects that respond to messages. This makes the language highly uniform: the same
+syntax that adds two numbers also controls an LED or queries a sensor.
 
-The picoceci domain in Canal wires the compiler and VM together in a single pipeline:
+```picoceci
+"Arithmetic — binary message"
+3 + 4.              "=> 7"
 
-```
-Source text
-    │
-    ▼
-Lexer (lexer.NewString)
-    │
-    ▼
-Parser (parser.New)
-    │
-    ▼
-Compiler (bytecode.NewCompilerWithLoader)
-    │  ← Module loader resolves imports
-    ▼
-Bytecode chunk
-    │
-    ▼
-VM (bytecode.NewVM)
-    │
-    ▼
-Result value
+"String concatenation — binary message"
+'Hello, ' , 'picoceci!'.
+
+"Conditional — keyword message sent to a boolean"
+(x > 0) ifTrue: [ Console println: 'positive' ].
+
+"Iteration — keyword message sent to an integer"
+5 timesRepeat: [ Console println: 'tick' ].
 ```
 
-### 3.2 First-Class Channels
+### 3.2 Objects Defined by Composition, Not Inheritance
 
-A channel in picoceci is a value, just like a number or a function. You can store it in a
-variable, pass it to a function, and send or receive on it. Under the hood, each picoceci
-channel corresponds to a Canal capability of type `CapTypeChannel`, which wraps a
-FreeRTOS queue.
+picoceci has no class hierarchy. An `object` declaration defines a named prototype with
+instance variable slots and methods. Objects gain behaviour from other objects via
+`compose` — analogous to Go's struct embedding:
 
-This means picoceci concurrency is not simulated inside the interpreter—it is real,
-hardware-backed IPC that crosses domain boundaries when needed.
+```picoceci
+object Counter {
+    | count |
+    init  [ count := 0 ]
+    inc   [ count := count + 1. ^self ]
+    value [ ^count ]
+}
 
-### 3.3 Hot-Loadable Definitions
+object LoggedCounter {
+    compose Counter.
+    inc [
+        super inc.
+        Console println: 'incremented to ', self value printString.
+        ^self
+    ]
+}
+```
 
-Because the REPL compiles and evaluates each expression independently, you can redefine
-a function without restarting the interpreter or rebooting the board. The new definition
-shadows the old one immediately; any subsequent call picks up the new code. This
-"hot-patching" workflow is invaluable during development: change a parameter, test on
-live hardware, iterate.
+`LoggedCounter` has all the slots and methods of `Counter`, and overrides `inc` to add
+logging. There is no runtime class hierarchy — `super` dispatches to the composed
+object's method, not up an inheritance chain.
 
-### 3.4 Interactive REPL over Serial/USB
+### 3.3 Structural Typing via Interfaces
+
+picoceci uses **structural typing**: declare an `interface` as a set of messages, and any
+object that responds to all those messages satisfies the interface — no declaration needed.
+
+```picoceci
+interface Incrementable {
+    inc
+    dec
+    value
+}
+
+| c |
+c := LoggedCounter new.
+(c satisfies: Incrementable) ifTrue: [ Console println: 'yes' ].
+```
+
+This is Go's duck typing brought to a Smalltalk-syntax language.
+
+### 3.4 First-Class Blocks (Closures)
+
+Blocks are the primary abstraction for deferred computation, iteration, and concurrency.
+A block captures its enclosing scope:
+
+```picoceci
+| adder |
+adder := [ :n | [ :x | x + n ] ].
+(adder value: 5) value: 3.   "=> 8"
+```
+
+Blocks are how picoceci implements control flow without special keywords — `ifTrue:`,
+`whileTrue:`, `timesRepeat:`, and `do:` are all ordinary keyword messages that take
+blocks as arguments.
+
+### 3.5 Deterministic Memory
+
+picoceci uses reference counting (for MCU targets) or an arena allocator, not a
+stop-the-world garbage collector. This means:
+
+- **No GC pauses** — important for real-time tasks like sensor polling.
+- **Predictable peak memory** — the heap budget is fixed at spawn time.
+- **Small integers, booleans, nil, and characters** are *immediate values* encoded
+  in the pointer word — they never touch the heap.
+
+### 3.6 Interactive REPL over Serial/USB
 
 The picoceci domain opens a line-oriented console on `machine.Serial`, which maps to USB
-CDC (USB serial) on the ESP32-S3. Connect with any serial terminal at 115200 baud and
-you get an interactive prompt:
+CDC (USB serial) on the ESP32-S3. Connect with any serial terminal at 115200 baud:
+
+```
+[picoceci] Starting v0.1.0-dev (Canal domain)
+[picoceci] Ready.
+
+>
+```
+
+The REPL compiles and evaluates each line as you type it. Every object definition is
+immediately usable in the next line, enabling a tight edit-and-try loop on live hardware
+without rebooting.
+
+---
+
+## 4. Language Walkthrough
+
+This section gives a condensed tour of picoceci. Assume you are typing into a live REPL
+unless noted otherwise.
+
+### 4.1 Variables and Assignment
+
+Variables must be declared in a `| ... |` block before use. Assignment uses `:=`:
+
+```picoceci
+| x y |
+x := 42.
+y := x + 1.
+Console println: y printString.   "=> 43"
+```
+
+Comments are double-quoted strings and are ignored by the interpreter.
+
+### 4.2 Values and Types
+
+picoceci is dynamically typed at the script level, but the runtime tags every value with
+its kind. The immediate (non-heap) types are:
+
+| Type | Examples | Notes |
+|------|---------|-------|
+| SmallInt | `42`, `-7`, `0` | Tagged pointer — no heap allocation |
+| Float | `3.14`, `-0.5` | 64-bit IEEE 754 |
+| Bool | `true`, `false` | Tagged pointer |
+| Nil | `nil` | Absence of value |
+| Char | `$A`, `$\n` | Unicode code point |
+
+Heap-allocated types include `String` (single-quoted, immutable), `Symbol` (`#hello`,
+interned), `Array` (`#(1 2 3)`), `ByteArray` (`#[1 2 255]`), `Block`, and user-defined
+`Object` instances.
+
+```picoceci
+"Integer arithmetic"
+3 + 4.                    "=> 7"
+10 \\ 3.                  "=> 1  (modulo — Smalltalk uses \\ not %)"
+10 // 3.                  "=> 3  (integer division)"
+
+"String concatenation"
+'Hello' , ', ' , 'world'. "=> 'Hello, world'"
+
+"Boolean"
+(3 > 2) & (1 < 5).        "=> true"
+true not.                 "=> false"
+
+"Symbol (interned — same characters, same object)"
+#hello == #hello.         "=> true"
+```
+
+### 4.3 Blocks and Control Flow
+
+All control flow in picoceci is implemented as keyword messages that accept blocks.
+There are no `if`, `while`, or `for` keywords.
+
+**Conditional:**
+
+```picoceci
+| x |
+x := -7.
+(x < 0)
+    ifTrue:  [ Console println: 'negative' ]
+    ifFalse: [ Console println: 'non-negative' ].
+```
+
+**Loops:**
+
+```picoceci
+"Count from 1 to 5"
+1 to: 5 do: [ :i | Console println: i printString ].
+
+"While loop"
+| n |
+n := 10.
+[ n > 0 ] whileTrue: [ n := n - 1 ].
+
+"Repeat N times"
+5 timesRepeat: [ Console println: 'tick' ].
+```
+
+**Collection iteration:**
+
+```picoceci
+#(1 2 3 4) do: [ :each |
+    Console println: each printString
+].
+
+| doubled |
+doubled := #(1 2 3) collect: [ :each | each * 2 ].
+"=> #(2 4 6)"
+
+| sum |
+sum := #(1 2 3 4) inject: 0 into: [ :acc :each | acc + each ].
+"=> 10"
+```
+
+### 4.4 Defining Objects
+
+Objects are picoceci's primary unit of abstraction. They have instance variables
+(declared in `| ... |`) and methods (each method is a block headed by its message
+signature):
+
+```picoceci
+object Counter {
+    | count |
+
+    init [
+        count := 0
+    ]
+
+    inc [
+        count := count + 1.
+        ^self
+    ]
+
+    dec [
+        count := count - 1.
+        ^self
+    ]
+
+    add: n [
+        count := count + n.
+        ^self
+    ]
+
+    value [
+        ^count
+    ]
+
+    printString [
+        ^'Counter(', count printString, ')'
+    ]
+}
+
+| c |
+c := Counter new.
+c inc; inc; inc.           "cascade: send inc three times to c"
+Console println: c value printString.   "=> 3"
+c add: 10.
+Console println: c printString.        "=> Counter(13)"
+```
+
+`^` returns a value from a method. `^self` returns the receiver, enabling cascades with `;`.
+
+### 4.5 Composition
+
+`compose` pulls all slots and methods of another object into the current one:
+
+```picoceci
+object LoggedCounter {
+    compose Counter.
+
+    inc [
+        super inc.
+        Console println: 'incremented to ', self value printString.
+        ^self
+    ]
+}
+
+| lc |
+lc := LoggedCounter new.
+lc inc; inc.
+"prints:
+incremented to 1
+incremented to 2"
+```
+
+### 4.6 Talking to Hardware Through Canal Capabilities
+
+Hardware access in picoceci goes through Canal capability objects. A picoceci script
+cannot crash the Wi-Fi stack or corrupt GPIO configuration of another domain, because it
+does not hold a capability for those resources unless one has been explicitly granted.
+
+**GPIO:**
+
+```picoceci
+| led |
+led := GPIO pin: 2 direction: #output.
+led high.
+Task delay: 500.    "wait 500 ms"
+led low.
+```
+
+**Blink loop:**
+
+```picoceci
+| led |
+led := GPIO pin: 2 direction: #output.
+[ true ] whileTrue: [
+    led toggle.
+    Task delay: 500
+].
+```
+
+**UART:**
+
+```picoceci
+| uart |
+uart := UART new: 0 baud: 115200.
+uart println: 'Hello from picoceci'.
+```
+
+**Acquiring a Canal capability by name:**
+
+```picoceci
+| cap |
+cap := Canal capability: #uart0.
+cap send: 'hello\n' asBytes.
+cap close.
+```
+
+### 4.7 Concurrency with FreeRTOS Primitives
+
+picoceci exposes FreeRTOS tasks, queues, semaphores, and timers as first-class objects.
+
+**Spawning a task:**
+
+```picoceci
+| task |
+task := Task spawn: [
+    | led |
+    led := GPIO pin: 2 direction: #output.
+    [ true ] whileTrue: [
+        led toggle.
+        Task delay: 1000
+    ]
+].
+task name: 'blinker'.
+```
+
+**Producer/consumer with a Queue:**
+
+```picoceci
+| q |
+q := Queue new: 10.
+
+Task spawn: [
+    1 to: 5 do: [ :i | q send: i ]
+].
+
+Task spawn: [
+    5 timesRepeat: [
+        | item |
+        item := q receive.
+        Console println: item printString
+    ]
+].
+```
+
+**Higher-level Channel (Go-like `<-` operator syntax):**
+
+Channels provide a higher-level abstraction over `Queue`. For familiarity with Go
+developers, picoceci uses `<-` operator syntax for send and receive rather than keyword
+messages:
+
+```picoceci
+| ch |
+ch := Channel new: 5.
+ch <- 42.         "send  (binary operator '<-')"
+| v |
+v := <-ch.        "receive (unary operator '<-')"
+Console println: v printString.   "=> 42"
+```
+
+**Semaphore:**
+
+```picoceci
+| sem |
+sem := Semaphore new.    "binary semaphore"
+sem take.
+"... critical section ..."
+sem give.
+```
+
+**Timer:**
+
+```picoceci
+| t |
+t := Timer every: 1000 do: [ Console println: 'tick' ].
+Task delay: 5000.
+t stop.
+```
+
+---
+
+## 5. Running picoceci on the MCU
+
+### 5.1 Prerequisites
+
+You need:
+
+- An ESP32-S3 development board (such as the Espressif ESP32-S3-N16R8 or any compatible
+  board that exposes the native USB port).
+- A data-capable USB cable.
+- TinyGo 0.32 or later and the `esptool.py` flash utility installed on your host machine.
+  See the [Canal quick-start guide](../GETTING_STARTED.md) for exact installation steps.
+
+### 5.2 Building and Flashing
+
+picoceci is built as part of the Canal image and lives in `Canal/canal/domains/picoceci/`.
+
+```bash
+# Clone the repository (if you haven't already)
+git clone https://github.com/kristofer/Canal.git
+cd Canal/canal
+
+# Build, flash, and open a monitor in one step
+make picoceci-run
+```
+
+Or step by step:
+
+```bash
+# Flash the picoceci binary
+tinygo flash -target=esp32s3-generic \
+             -port=/dev/cu.usbmodem11201 \
+             ./target/esp32s3
+
+# Open the serial monitor
+tinygo monitor
+```
+
+### 5.3 Connecting to the REPL
+
+You should see the Canal boot log followed by the picoceci banner:
 
 ```
 [picoceci] Starting v0.1.0-dev (Canal domain)
@@ -188,319 +568,79 @@ you get an interactive prompt:
 
 The console handles backspace, Ctrl-C (interrupt current input), and Ctrl-D (exit).
 
-### 3.5 Deterministic Memory
-
-picoceci uses a static arena or region-based allocator for its value heap, rather than a
-general-purpose garbage collector. This means:
-
-- **No GC pauses** — important for real-time tasks like sensor polling.
-- **Predictable peak memory** — the domain's heap budget is fixed at spawn time; you
-  cannot accidentally exhaust PSRAM by allocating without bound.
-- **Crash recovery** — after a script error, the arena is reset to the start of the
-  region, reclaiming all allocations in O(1).
-
----
-
-## 4. Language Walkthrough
-
-This section gives a condensed tour of picoceci. Assume you are typing into a live REPL
-unless noted otherwise.
-
-### 4.1 Values and Types
-
-picoceci is dynamically typed. The core value types are:
-
-| Type | Examples | Notes |
-|------|---------|-------|
-| Integer | `42`, `-7`, `0` | 64-bit signed |
-| Float | `3.14`, `-0.5` | 64-bit IEEE 754 |
-| Boolean | `true`, `false` | |
-| String | `"hello"` | Immutable, UTF-8 |
-| Nil | `nil` | Absence of value |
-| List | `[1, 2, 3]` | Heterogeneous |
-| Function | `fn(x) { x * x }` | First-class |
-| Channel | (returned by `open_channel`) | Canal IPC primitive |
-
-```picoceci
-> 1 + 2
-=> 3
-> "hello" + " world"
-=> "hello world"
-> true == false
-=> false
-> [1, 2, 3]
-=> [1, 2, 3]
-```
-
-### 4.2 Defining Functions (Words)
-
-Functions are defined with `fn` and bound to a name with `let`:
-
-```picoceci
-> let square = fn(x) { x * x }
-> square(5)
-=> 25
-```
-
-Functions are values and can be passed as arguments:
-
-```picoceci
-> let apply = fn(f, x) { f(x) }
-> apply(square, 4)
-=> 16
-```
-
-Recursive functions refer to themselves by name:
-
-```picoceci
-> let factorial = fn(n) {
-    if n <= 1 { 1 } else { n * factorial(n - 1) }
-  }
-> factorial(5)
-=> 120
-```
-
-### 4.3 Control Flow
-
-**Conditionals** use `if`/`else`:
-
-```picoceci
-> let abs = fn(x) { if x < 0 { -x } else { x } }
-> abs(-7)
-=> 7
-```
-
-**Loops** use `while` or functional recursion:
-
-```picoceci
-> let i = 0
-> while i < 5 {
-    println(i)
-    let i = i + 1
-  }
-0
-1
-2
-3
-4
-```
-
-For many tasks, recursion is more idiomatic:
-
-```picoceci
-> let countdown = fn(n) {
-    if n >= 0 {
-      println(n)
-      countdown(n - 1)
-    }
-  }
-> countdown(3)
-3
-2
-1
-0
-```
-
-### 4.4 Lists
-
-Lists are created with `[...]` and manipulated with built-in functions:
-
-```picoceci
-> let nums = [10, 20, 30]
-> head(nums)
-=> 10
-> tail(nums)
-=> [20, 30]
-> len(nums)
-=> 3
-> push(nums, 40)
-=> [10, 20, 30, 40]
-```
-
-Iteration over a list with a helper:
-
-```picoceci
-> let each = fn(lst, f) {
-    if len(lst) > 0 {
-      f(head(lst))
-      each(tail(lst), f)
-    }
-  }
-> each([1, 4, 9], fn(x) { println(x) })
-1
-4
-9
-```
-
-### 4.5 Talking to Hardware Through Canal Capabilities
-
-Hardware access in picoceci goes through Canal capabilities, not through raw register
-writes. This is by design: a picoceci script cannot crash the Wi-Fi stack or corrupt GPIO
-configuration of another domain, because it does not have a capability for those resources
-unless one has been explicitly granted.
-
-**GPIO example** (requires `device:gpio` capability):
-
-```picoceci
-> let pin = gpio_open(2)        # Open GPIO pin 2
-> gpio_write(pin, true)         # Set HIGH
-> gpio_write(pin, false)        # Set LOW
-```
-
-**Timer example**:
-
-```picoceci
-> let blink = fn(pin, n) {
-    if n > 0 {
-      gpio_write(pin, true)
-      sleep_ms(500)
-      gpio_write(pin, false)
-      sleep_ms(500)
-      blink(pin, n - 1)
-    }
-  }
-> let led = gpio_open(2)
-> blink(led, 5)                 # Blink 5 times
-```
-
-### 4.6 Channels and Concurrency
-
-picoceci channels map directly to Canal IPC channels. You can open a channel to any
-service domain that your domain has the capability for:
-
-```picoceci
-# Open a channel to the Wi-Fi service domain
-> let wifi = open_channel("service:wifi")
-
-# Send a connect request
-> send(wifi, {ssid: "MyNetwork", password: "secret"})
-
-# Wait for the acknowledgement
-> let result = recv(wifi)
-> if result.ok {
-    println("Connected!")
-  } else {
-    println("Failed: " + result.error)
-  }
-```
-
-Concurrency is expressed with `spawn`, which creates a new lightweight task:
-
-```picoceci
-> spawn fn() {
-    let ch = open_channel("device:gpio")
-    while true {
-      send(ch, {pin: 2, value: true})
-      sleep_ms(1000)
-      send(ch, {pin: 2, value: false})
-      sleep_ms(1000)
-    }
-  }
-```
-
-The spawned task runs concurrently with the REPL. Because it communicates through a
-capability channel rather than shared memory, there is no race condition even though both
-tasks run on the same domain heap.
-
----
-
-## 5. Running picoceci on the MCU
-
-### 5.1 Prerequisites
-
-You need:
-
-- An ESP32-S3 development board (any board with USB-C or USB-Micro that exposes the
-  native USB port, such as the Espressif ESP32-S3-DevKitC-1).
-- A data-capable USB cable.
-- TinyGo 0.31.0 or later, ESP-IDF (for flashing), and `esptool.py` installed on your
-  host machine. See the [Canal quick-start guide](../GETTING_STARTED.md) for exact
-  installation steps.
-
-### 5.2 Building and Flashing the Canal Image
-
-```bash
-# Clone the repository (if you haven't already)
-git clone https://github.com/kristofer/Canal.git
-cd Canal/canal
-
-# Set up dependencies (downloads FatFS, mbedTLS, etc.)
-chmod +x scripts/setup.sh
-./scripts/setup.sh esp32s3
-
-# Build the full Canal image including the picoceci domain
-make TARGET=esp32s3
-
-# Flash to the connected board
-make flash PORT=/dev/ttyUSB0    # Linux
-# make flash PORT=/dev/cu.usbmodem*  # macOS
-```
-
-### 5.3 Connecting to the REPL
-
-```bash
-# Open the serial monitor (115200 baud)
-make monitor PORT=/dev/ttyUSB0
-```
-
-You should see the Canal boot log followed by the picoceci banner:
-
-```
-=== Canal ESP32-S3 ===
-Boot time: 342 ms
-...
-=== Boot Complete ===
-[picoceci] Starting v0.1.0-dev (Canal domain)
-[picoceci] Ready.
-
->
-```
-
 ### 5.4 Your First Program
 
-Try this at the prompt:
+Try arithmetic and string output at the prompt:
 
 ```picoceci
-> let greet = fn(name) { "Hello, " + name + "!" }
-> greet("Canal")
-=> "Hello, Canal!"
+> Console println: 'Hello, picoceci!'.
+Hello, picoceci!
+
+> 3 + 4.
+7
+```
+
+Then define an object and use it interactively:
+
+```picoceci
+> object Greeter {
+    greet: name [
+        Console println: 'Hello, ', name, '!'
+    ]
+  }
+> Greeter new greet: 'Canal'.
+Hello, Canal!
 ```
 
 Then try something hardware-related:
 
 ```picoceci
-> let led = gpio_open(2)
-> gpio_write(led, true)    # LED on
-> sleep_ms(1000)
-> gpio_write(led, false)   # LED off
+> | led |
+> led := GPIO pin: 2 direction: #output.
+> led high.
+> Task delay: 1000.
+> led low.
 ```
 
 If the LED on your board blinks, you have a working picoceci environment on live hardware.
 
 ### 5.5 Loading a Program from a File
 
-Once Canal's SD-card domain is fully wired (currently in progress), you will be able to
-load a picoceci source file from the SD card:
+Once Canal's SD-card domain is fully wired, you will be able to import picoceci source
+files from the SD card (files conventionally use the `.pc` extension; the extension
+may be omitted from `import` statements):
 
 ```picoceci
-> load("/sdcard/blink.pico")
-[loaded blink.pico]
-> blink(gpio_open(2), 10)
+import '/sdcard/blink.pc'.
+
+| led |
+led := GPIO pin: 2 direction: #output.
+Blinker runOn: led times: 10.
 ```
 
-For now, you can paste multi-line programs directly into the REPL—the parser handles
+For now, you can paste multi-line programs directly into the REPL — the parser handles
 incomplete input gracefully.
 
 ---
 
 ## Summary
 
-picoceci is a purpose-built scripting language for Canal: small enough to live in a 32 KB
-heap, expressive enough to teach real programming concepts, and integrated tightly with
-Canal's channel-based capability model. It borrows a small Forth-style bytecode VM, Lisp's
-first-class functions, Go's channels, and Logo's interactive REPL spirit—combining them
-into a language that is at home on a microcontroller yet familiar enough for developers
-coming from mainstream programming backgrounds.
+picoceci is a purpose-built scripting language for Canal: small enough to fit the ESP32-S3
+memory budget, expressive enough to teach real programming concepts, and integrated
+tightly with Canal's capability model and FreeRTOS concurrency primitives. It combines
+**Smalltalk's elegant message-passing syntax** with **Go's structural typing and
+composition-over-inheritance semantics**, arriving at a language that feels familiar to
+developers from both camps while being at home on a microcontroller.
+
+Key design choices to remember:
+
+| Choice | Rationale |
+|--------|-----------|
+| Smalltalk message syntax | Uniform, readable, no special `if`/`while` keywords |
+| No class hierarchy | Composition via `compose` is simpler and avoids fragile inheritance |
+| Structural typing | Objects satisfy interfaces automatically — like Go's duck typing |
+| FreeRTOS-backed concurrency | Real hardware tasks, queues, and semaphores — not simulated |
+| Canal capabilities as objects | Safe access to hardware without raw pointers |
 
 In [Article 3](./03-canal-and-freertos-go-on-bare-metal.md) we will go deeper into Canal's
 architecture: how FreeRTOS tasks map to domains, how TinyGo's runtime fits inside an
@@ -510,21 +650,28 @@ isolated domain, and how the kernel arbitrates capability-mediated inter-domain 
 
 ## Exercises
 
-1. **Language influences.** picoceci draws design ideas from Forth, Scheme, Go, and Logo.
-   Choose any two of those languages and write a short paragraph for each explaining which
-   specific picoceci feature reflects that influence and why the designers likely borrowed
-   it.
+1. **Language influences.** picoceci takes its syntax from Smalltalk and its object
+   semantics from Go. Choose one feature from each language and write a short paragraph
+   explaining *why* that design choice is a good fit for an embedded scripting language
+   running on a microcontroller.
 
 2. **REPL practice.** Open (or imagine) a picoceci REPL session. Write a short program
    that:
-   - Defines a function called `square` that returns the square of its argument.
-   - Uses `square` inside a loop to print the squares of 1 through 5.
+   - Defines an object `Accumulator` with an `add:` method and a `total` method.
+   - Creates an instance, adds the numbers 1 through 5 using a `to:do:` loop, and prints
+     the total.
    Label each line with a comment explaining what it does.
 
-3. **Memory model.** picoceci uses "deterministic memory" (static arena or region-based
-   allocation). Compare this to garbage collection: list one benefit and one drawback of
-   each approach in the context of a microcontroller with 512 KB of RAM.
+3. **Composition vs inheritance.** picoceci uses `compose` instead of class inheritance.
+   Given the `Counter` and `LoggedCounter` examples in section 4.5, explain what would
+   happen in a traditional inheritance-based language if someone added a new method to the
+   parent class `Counter`. Would the same problem arise with picoceci's `compose`? Why or
+   why not?
 
-4. **Hot-loadable definitions.** Explain what "hot-loadable definitions" means in the
-   context of picoceci. Describe a practical development scenario where being able to
-   redefine a function without rebooting the board would save significant time.
+4. **Concurrency model.** Describe the difference between a `Queue` and a `Channel` in
+   picoceci. In what scenario would you prefer a `Queue`, and in what scenario would you
+   prefer a `Channel`?
+
+5. **Memory model.** picoceci avoids a stop-the-world GC, using reference counting or
+   arena allocation instead. List one benefit and one drawback of each approach in the
+   context of a real-time sensor-polling task on a microcontroller.
