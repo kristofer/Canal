@@ -234,110 +234,38 @@ application. Each lesson fits in 30–45 minutes for a motivated beginner.
 **Goal**: Print a message and blink the built-in LED.
 
 ```picoceci
-> println("Hello from Canal!")
+> Console println: 'Hello from Canal!'.
 Hello from Canal!
 
-> let led = gpio_open(2)      # built-in LED on GPIO 2
-> gpio_write(led, true)       # LED on
-> sleep_ms(1000)
-> gpio_write(led, false)      # LED off
+> | led |
+> led := GPIO pin: 2 direction: #output.   "built-in LED on GPIO 2"
+> led high.                                "LED on"
+> Task delay: 1000.
+> led low.                                 "LED off"
 ```
 
 **Takeaway**: The REPL gives immediate feedback; hardware responds in real time.
 
 ---
 
-### Lesson 1: Variables, Loops, and Conditionals
+### Lesson 1: Variables, Assignment, and Control Flow
 
-**Goal**: Understand picoceci's basic data types and control flow.
+**Goal**: Understand picoceci's basic values and Smalltalk message-based control flow.
 
 ```picoceci
-> let x = 10
-> let y = 3
-> x + y
-=> 13
-> x > y
-=> true
-> if x > y { println("x wins") } else { println("y wins") }
+> | x y |
+> x := 10.
+> y := 3.
+> x + y.
+13
+> x > y.
+true
+> (x > y)
+    ifTrue:  [ Console println: 'x wins' ]
+    ifFalse: [ Console println: 'y wins' ].
 x wins
 
-> let i = 0
-> while i < 5 {
-    println(i)
-    let i = i + 1
-  }
-0
-1
-2
-3
-4
-```
-
-**Takeaway**: Variables are immutable bindings; `let` inside a block creates a new binding
-that shadows the outer one.
-
----
-
-### Lesson 2: Functions and Recursion
-
-**Goal**: Define reusable functions and understand recursion.
-
-```picoceci
-> let square = fn(x) { x * x }
-> square(5)
-=> 25
-
-> let sum_to = fn(n) {
-    if n <= 0 { 0 } else { n + sum_to(n - 1) }
-  }
-> sum_to(5)
-=> 15
-```
-
-**Hardware exercise**: Write a `blink_n` function that blinks the LED *n* times.
-
-```picoceci
-> let blink_n = fn(led, n) {
-    if n > 0 {
-      gpio_write(led, true)
-      sleep_ms(200)
-      gpio_write(led, false)
-      sleep_ms(200)
-      blink_n(led, n - 1)
-    }
-  }
-> blink_n(gpio_open(2), 5)
-```
-
-**Takeaway**: Functions are values; recursion is the natural way to express repetition
-with a stopping condition.
-
----
-
-### Lesson 3: Channels and Concurrency — Two Tasks Talking
-
-**Goal**: Understand picoceci channels and the `spawn` primitive.
-
-```picoceci
-# Create a local channel (not a Canal IPC channel — just in-domain)
-> let ch = make_channel()
-
-# Producer: send numbers 1..5 then close
-> spawn fn() {
-    let i = 1
-    while i <= 5 {
-      send(ch, i)
-      let i = i + 1
-    }
-    close(ch)
-  }
-
-# Consumer: receive until channel is closed
-> let v = recv(ch)
-> while v != nil {
-    println(v)
-    let v = recv(ch)
-  }
+> 1 to: 5 do: [ :i | Console println: i printString ].
 1
 2
 3
@@ -345,37 +273,110 @@ with a stopping condition.
 5
 ```
 
-**Takeaway**: Channels decouple producers from consumers; `spawn` creates a concurrent
-task; `recv` blocks until data is available.
+**Takeaway**: In picoceci, control flow is expressed through keyword messages sent to
+booleans and numbers. `ifTrue:ifFalse:` and `to:do:` are not special keywords—they are
+ordinary messages.
+
+---
+
+### Lesson 2: Blocks and Reusable Computations
+
+**Goal**: Use blocks as first-class closures for reusable computation and recursion.
+
+```picoceci
+> | square |
+> square := [ :x | x * x ].
+> square value: 5.
+25
+
+> | sumTo |
+> sumTo := nil.
+> sumTo := [ :n | (n <= 0) ifTrue: [ 0 ] ifFalse: [ n + (sumTo value: n - 1) ] ].
+> sumTo value: 5.
+15
+```
+
+**Hardware exercise**: Write a `blinkN` block that blinks the LED *n* times.
+
+```picoceci
+> | blinkN led |
+> led := GPIO pin: 2 direction: #output.
+> blinkN := nil.
+> blinkN := [ :n |
+    n > 0 ifTrue: [
+        led high.
+        Task delay: 200.
+        led low.
+        Task delay: 200.
+        blinkN value: n - 1
+    ]
+  ].
+> blinkN value: 5.
+```
+
+**Takeaway**: Blocks are first-class values in picoceci—they replace standalone functions.
+Recursion is expressed by a block that references its own variable (declared before the
+block is created so it is in scope when the block executes).
+
+---
+
+### Lesson 3: Tasks, Queues, and Concurrency
+
+**Goal**: Understand picoceci's `Task` and `Queue` primitives.
+
+```picoceci
+"Create a queue to pass values between tasks"
+> | q |
+> q := Queue new: 10.
+
+"Producer task: send numbers 1..5"
+> Task spawn: [
+    1 to: 5 do: [ :i | q send: i ]
+  ].
+
+"Consumer: receive 5 items"
+> 5 timesRepeat: [
+    | v |
+    v := q receive.
+    Console println: v printString
+  ].
+1
+2
+3
+4
+5
+```
+
+**Takeaway**: `Task spawn: aBlock` creates a concurrent FreeRTOS task. `Queue` is a
+thread-safe FIFO: `q send: item` posts a value and `q receive` blocks until one is
+available. These are the same FreeRTOS primitives that Canal's kernel uses internally.
 
 ---
 
 ### Lesson 4: Reading a Sensor and Reacting to Data
 
-**Goal**: Read real hardware data and branch on it.
+**Goal**: Read real hardware data through a Canal capability and branch on it.
 
 ```picoceci
-# Assumes a temperature sensor on UART (e.g. SHT30)
-> let uart = open_channel("device:uart")
-> send(uart, {op: "configure", baud: 9600, bits: 8, parity: "none"})
-> recv(uart)    # wait for ack
+"Use the built-in UART object for a temperature sensor at 9600 baud"
+> | uart readTemp temp |
+> uart := UART new: 0 baud: 9600.
 
-> let read_temp = fn() {
-    send(uart, {op: "read", max_len: 8})
-    let r = recv(uart)
-    r.value     # numeric temperature reading
-  }
+> readTemp := [ uart readLine asFloat ].
 
-> let temp = read_temp()
-> println("Temperature: " + temp + "°C")
+> temp := readTemp value.
+> Console println: 'Temperature: ', temp printString, '°C'.
 Temperature: 23.4°C
 
-> if temp > 30 { println("Too hot!") } else { println("Comfortable") }
+> (temp > 30)
+    ifTrue:  [ Console println: 'Too hot!' ]
+    ifFalse: [ Console println: 'Comfortable' ].
 Comfortable
 ```
 
-**Takeaway**: `device:uart` capability gates UART access; the domain manifest controls
-which pins and baud rates are permitted.
+**Takeaway**: Canal's `#uart` capability gates UART access; all hardware interactions go
+through picoceci built-in objects or Canal capability objects. The `ifTrue:ifFalse:`
+message branch is an ordinary keyword message sent to the boolean result.
 
 ---
 
@@ -384,17 +385,19 @@ which pins and baud rates are permitted.
 **Goal**: Connect to Wi-Fi and make an HTTP(S) request.
 
 ```picoceci
-# Connect to Wi-Fi
-> let wifi = open_channel("service:wifi")
-> send(wifi, {op: "connect", ssid: "SchoolNet", password: "learn2code", timeout: 15000})
-> let r = recv(wifi)
-> println(r.ok)
+"Acquire the Wi-Fi capability and connect"
+> | wifi r |
+> wifi := Canal capability: #wifi.
+> wifi send: (object { op := 'connect'. ssid := 'SchoolNet'. password := 'learn2code'. timeout := 15000 }).
+> r := wifi receive: 256.
+> Console println: r ok printString.
 true
 
-# Fetch current time from a public API (illustrative)
-> let tls = open_channel("service:tls")
-> # … TLS handshake, HTTP GET, parse JSON response (see Article 4 for full code) …
-> println("UTC time: " + response.utc)
+"Fetch current time from a public API (illustrative)"
+> | tls response |
+> tls := Canal capability: #tls.
+> "… TLS handshake, HTTP GET, parse response (see Article 4 for full code) …"
+> Console println: 'UTC time: ', response utc printString.
 UTC time: 2026-05-01T12:00:00Z
 ```
 
@@ -408,23 +411,22 @@ the picoceci domain never touches TCP bytes directly.
 **Goal**: Persist picoceci code across reboots.
 
 ```picoceci
-# Write a program to the SD card
-> let fs = open_channel("fs:write")
-> send(fs, {
-    path: "/programs/blink.pico",
-    data: "let blink_n = fn(led, n) { if n > 0 { gpio_write(led, true) " +
-          "sleep_ms(200) gpio_write(led, false) sleep_ms(200) blink_n(led, n-1) } }"
-  })
-> recv(fs)
+"Write a program to the SD card"
+> | fs |
+> fs := Canal capability: #fsWrite.
+> fs send: (object {
+    path := '/programs/blink.pc'.
+    data := '| led | led := GPIO pin: 2 direction: #output. 5 timesRepeat: [ led toggle. Task delay: 200 ].'
+  }).
+> fs receive: 32.
 
-# Load it back in a fresh session
-> load("/programs/blink.pico")
-[loaded blink.pico]
-> blink_n(gpio_open(2), 3)
+"Load it back in a fresh session"
+> import '/programs/blink.pc'.
 ```
 
-**Takeaway**: `fs:write` is separate from `fs:read`; a domain with only `fs:read` cannot
-modify stored programs.
+**Takeaway**: `#fsWrite` is separate from `#fsRead`; a domain with only `#fsRead` cannot
+modify stored programs. Source files conventionally use the `.pc` extension and are loaded
+with the `import` keyword.
 
 ---
 
@@ -485,9 +487,10 @@ case "service:wifi":
     return capID
 ```
 
-Commenting out the `service:wifi` case means any `open_channel("service:wifi")` call
-returns an error immediately, without changing anything else. Students in Lessons 0–4 are
-not affected; the instructor enables it for Lesson 5 by re-flashing the kernel.
+Commenting out the `service:wifi` case means any `Canal capability: #wifi` expression in
+a picoceci script returns an error immediately, without changing anything else. Students
+in Lessons 0–4 are not affected; the instructor enables it for Lesson 5 by re-flashing
+the kernel.
 
 ---
 
@@ -532,12 +535,14 @@ func main() {
 Flash the new domain to an unused partition, and picoceci scripts can immediately use it:
 
 ```picoceci
-> let kv = open_channel("custom:keyvalue")
-> send(kv, {op: "set", key: "score", value: "42"})
-> recv(kv)
-> send(kv, {op: "get", key: "score"})
-> recv(kv)
-=> {ok: true, value: "42"}
+| kv r |
+kv := Canal capability: #keyvalue.
+kv send: (object { op := 'set'. key := 'score'. value := '42' }).
+kv receive: 64.
+kv send: (object { op := 'get'. key := 'score' }).
+r := kv receive: 64.
+Console println: r ok printString, ' value=', r value printString.
+"true value=42"
 ```
 
 ### 7.2 Writing a Simple Web Dashboard
@@ -659,10 +664,10 @@ environment on real hardware. The key properties:
    verify this claim: describe the setup, the deliberate crash to trigger, and the
    observation that proves isolation held.
 
-4. **picoceci channels vs. Go goroutines.** After completing Lesson 3 (channels and
-   concurrency), a student asks: "This looks like Go goroutines—are they the same?" Write
-   a two-paragraph answer that explains the similarities and the key differences between
-   picoceci channel tasks and Go goroutines in the standard runtime.
+4. **picoceci Tasks vs. Go goroutines.** After completing Lesson 3 (tasks and concurrency),
+   a student asks: "This looks like Go goroutines—are they the same?" Write a two-paragraph
+   answer that explains the similarities and the key differences between picoceci `Task`
+   primitives and Go goroutines in the standard runtime.
 
 5. **Custom key-value domain.** Describe how you would extend the learning environment
    with a custom domain that exposes a simple key-value store capability. What capability

@@ -55,7 +55,7 @@ func main() {
 }
 ```
 
-Under the hood, before any user script can call `gpio_open(2)`, the picoceci runtime
+Under the hood, before any user script can evaluate `GPIO pin: 2 direction: #output`, the picoceci runtime
 calls `runtime.RequestCap("device:gpio", RightRead|RightWrite)`. The kernel looks up the
 capability in its registry, creates a `CapTypeChannel` slot backed by a FreeRTOS queue,
 and returns a `CapabilityID`. That ID is stored in the domain's `Caps` array. No user
@@ -171,43 +171,45 @@ advertising its name. A picoceci script requests the capability by name just lik
 built-in one:
 
 ```picoceci
-> let kv = open_channel("custom:keyvalue")
-> send(kv, {op: "set", key: "count", value: 42})
-> let r = recv(kv)
-> println(r.ok)
-true
+| kv r |
+kv := Canal capability: #keyvalue.
+kv send: (object { op := 'set'. key := 'count'. value := 42 }).
+r := kv receive: 64.
+Console println: r ok printString.
+"true"
 ```
 
 ---
 
-## 3. Channel-Based I/O in picoceci Programs
+## 3. Capability-Based I/O in picoceci Programs
 
-### 3.1 Opening a Channel to a Service Domain
+### 3.1 Acquiring a Canal Capability
 
-`open_channel(name)` is a picoceci built-in that calls `runtime.RequestCap` under the
-hood. It returns a channel value, which is just a `CapabilityID` wrapped in a picoceci
-object:
+`Canal capability: aSymbol` is the picoceci expression for requesting a Canal capability.
+Under the hood it calls `runtime.RequestCap`; it returns a capability object that wraps
+a `CapabilityID`:
 
 ```picoceci
-> let wifi = open_channel("service:wifi")
+| wifi |
+wifi := Canal capability: #wifi.
 ```
 
 If the capability is not registered (the Wi-Fi domain is not running, or the picoceci
-domain was not granted it at startup), `open_channel` returns an error value that the
-REPL prints immediately.
+domain was not granted it at startup), `Canal capability:` returns an error object that
+the REPL prints immediately.
 
 ### 3.2 Sending Typed Messages
 
-picoceci messages are maps (key-value records). The runtime serializes them before
-handing them to `kernel.CapSend`:
+picoceci sends structured messages to capability objects using `send:` with an object
+literal. The runtime serializes the object before handing it to `kernel.CapSend`:
 
 ```picoceci
-> send(wifi, {
-    op: "connect",
-    ssid: "MyNetwork",
-    password: "secret",
-    timeout: 10000
-  })
+wifi send: (object {
+    op := 'connect'.
+    ssid := 'MyNetwork'.
+    password := 'secret'.
+    timeout := 10000
+  }).
 ```
 
 On the receiving end (inside the Wi-Fi domain), the bytes are deserialized back into a
@@ -215,81 +217,90 @@ On the receiving end (inside the Wi-Fi domain), the bytes are deserialized back 
 
 ### 3.3 Receiving Responses and Handling Errors
 
-`recv(ch)` blocks the goroutine-like task until the service domain posts a reply. The
-result is a picoceci map:
+`cap receive: n` blocks the goroutine-like task until the service domain posts a reply
+(reading up to `n` bytes). The result is a picoceci object:
 
 ```picoceci
-> let result = recv(wifi)
-> if result.ok {
-    println("Connected, IP: " + result.ip)
-  } else {
-    println("Failed: " + result.error)
-    close(wifi)
-  }
+| result |
+result := wifi receive: 256.
+(result ok)
+    ifTrue:  [ Console println: 'Connected, IP: ', result ip printString ]
+    ifFalse: [ Console println: 'Failed: ', result error printString.
+               wifi close ].
 ```
 
-`close(ch)` marks the channel closed on the picoceci side and decrements the capability's
-`RefCount`. If `RefCount` reaches zero, the kernel frees the capability slot.
+`wifi close` marks the capability closed on the picoceci side and decrements the
+capability's `RefCount`. If `RefCount` reaches zero, the kernel frees the capability slot.
 
 ### 3.4 Concurrency: Running Multiple Tasks in picoceci
 
-`spawn` creates a lightweight task (a goroutine inside the picoceci domain's TinyGo
-runtime):
+`Task spawn: aBlock` creates a lightweight FreeRTOS task running the block concurrently:
 
 ```picoceci
-> let blink_task = spawn fn() {
-    let led = open_channel("device:gpio")
-    while true {
-      send(led, {pin: 2, value: true})
-      sleep_ms(500)
-      send(led, {pin: 2, value: false})
-      sleep_ms(500)
-    }
-  }
+| blinkTask |
+blinkTask := Task spawn: [
+    | led |
+    led := GPIO pin: 2 direction: #output.
+    [ true ] whileTrue: [
+        led high.
+        Task delay: 500.
+        led low.
+        Task delay: 500
+    ]
+  ].
+blinkTask name: 'blinker'.  "optional: name the task for the !caps inspector"
 ```
 
-While `blink_task` runs in the background, the REPL remains responsive. Both tasks run
-inside the single picoceci FreeRTOS task via cooperative scheduling—a channel operation
-or `sleep_ms` yields the goroutine, allowing the other to run.
+While `blinkTask` runs in the background, the REPL remains responsive. Both tasks run
+inside the single picoceci FreeRTOS task via cooperative scheduling—a `Task delay:` or
+capability receive yields the goroutine, allowing the other to run.
 
 ---
 
 ## 4. Live Coding on a Running System
 
-### 4.1 Defining New Words in the REPL and Calling Them Immediately
+### 4.1 Defining New Behaviour in the REPL
 
-Because every REPL expression is compiled and run independently, a function defined in one
-expression is immediately available in the next:
+Because every REPL expression is compiled and run independently, a block or object
+defined in one expression is immediately available in the next:
 
 ```picoceci
-> let greet = fn(name) { "Hello, " + name + "!" }
-> greet("Canal")
-=> "Hello, Canal!"
-> greet("picoceci")
-=> "Hello, picoceci!"
+| greet |
+greet := [ :name | 'Hello, ', name, '!' ].
+greet value: 'Canal'.
+"Hello, Canal!"
+greet value: 'picoceci'.
+"Hello, picoceci!"
 ```
 
-The function is stored in the VM's global namespace and persists across REPL expressions
-for the lifetime of the session.
+The block is stored in the REPL's global namespace and persists across REPL expressions
+for the lifetime of the session. Object templates (defined with `object`) are also
+globally available from the moment they are evaluated.
 
 ### 4.2 Hot-Patching a Running Program
 
-Redefining a function with `let` shadows the previous binding immediately:
+Reassigning a variable that a running task reads on each iteration takes effect
+immediately on the next iteration — no reboot, no domain restart required:
 
 ```picoceci
-> let blink_rate = 500      # original: 500 ms
-> # … blink_task is running, blinking at 500 ms …
+| blinkRate led blinkTask |
+blinkRate := 500.              "original: 500 ms"
+led := GPIO pin: 2 direction: #output.
+blinkTask := Task spawn: [
+    [ true ] whileTrue: [
+        led toggle.
+        Task delay: blinkRate  "reads blinkRate on each iteration"
+    ]
+  ].
 
-> let blink_rate = 100      # hot-patch: now 100 ms
-> # … blink_task picks up the new value on the next loop iteration …
+blinkRate := 100.              "hot-patch: task picks this up on next iteration"
 ```
 
-Because picoceci is interpreted and all global names are resolved at call time (not
-compile time), the running task sees the new value the next time it evaluates the
-expression. This is fundamentally different from recompiling C firmware: no reboot,
-no flash erase, no domain restart required.
+Because the block captures `blinkRate` by reference, the running task sees the updated
+value the next time it evaluates `Task delay: blinkRate`. This is fundamentally different
+from recompiling C firmware: no flash erase, no domain restart required.
 
-> **Important caveat**: Hot-patching a function that is in the *middle* of execution
+> **Important caveat**: Hot-patching a block that is in the *middle* of execution
 > (currently on the call stack) will not affect the current invocation—only future calls.
 > This is expected behaviour, not a bug.
 
@@ -319,75 +330,73 @@ capability interactions. Listings marked *(illustrative)* have not been run on h
 ### 5.1 Blink an LED and Log the State to a File
 
 ```picoceci
-# Requires: device:gpio, fs:write
+"Requires: device:gpio, fs:write"
 
-let led  = open_channel("device:gpio")
-let log  = open_channel("fs:write")
+| led log |
+led := GPIO pin: 2 direction: #output.
+log := Canal capability: #fsWrite.
 
-let blink_and_log = fn(n) {
-  if n > 0 {
-    send(led, {pin: 2, value: true})
-    send(log, {path: "/log.txt", data: "LED ON\n"})
-    sleep_ms(500)
-
-    send(led, {pin: 2, value: false})
-    send(log, {path: "/log.txt", data: "LED OFF\n"})
-    sleep_ms(500)
-
-    blink_and_log(n - 1)
-  }
-}
-
-blink_and_log(10)    # blink 10 times, log each transition
+10 timesRepeat: [
+    led high.
+    log send: (object { path := '/log.txt'. data := 'LED ON' }).
+    Task delay: 500.
+    led low.
+    log send: (object { path := '/log.txt'. data := 'LED OFF' }).
+    Task delay: 500
+].
 ```
 
-Each `send` is a capability syscall. The kernel validates the GPIO write right before
+Each `send:` is a capability syscall. The kernel validates the GPIO write right before
 setting the pin; the SDCard domain validates the write path before appending to the file.
 Neither operation is possible without the corresponding capability.
 
 ### 5.2 Fetch a URL over HTTPS and Display the Response
 
-*(illustrative — requires service:wifi, service:tls)*
+*(illustrative — requires `#wifi` and `#tls` capabilities)*
 
 ```picoceci
-# Step 1: Connect to Wi-Fi
-let wifi = open_channel("service:wifi")
-send(wifi, {op: "connect", ssid: "MyNetwork", password: "secret", timeout: 10000})
-let conn_result = recv(wifi)
-if !conn_result.ok { println("WiFi failed: " + conn_result.error) }
+"Step 1: Connect to Wi-Fi"
+| wifi connResult |
+wifi := Canal capability: #wifi.
+wifi send: (object { op := 'connect'. ssid := 'MyNetwork'. password := 'secret'. timeout := 10000 }).
+connResult := wifi receive: 256.
+(connResult ok) ifFalse: [ Console println: 'WiFi failed: ', connResult error printString ].
 
-# Step 2: Open a TCP socket (via Wi-Fi domain)
-send(wifi, {op: "create_socket", protocol: "tcp"})
-let sock_result = recv(wifi)
-let sock_id = sock_result.socket_id
+"Step 2: Open a TCP socket (via Wi-Fi capability)"
+wifi send: (object { op := 'create_socket'. protocol := 'tcp' }).
+| sockResult sockId |
+sockResult := wifi receive: 64.
+sockId := sockResult socketId.
 
-# Step 3: TLS handshake (via TLS domain)
-let tls = open_channel("service:tls")
-send(tls, {op: "create_context", role: "client", verify_peer: true})
-let ctx_result = recv(tls)
-let ctx_id = ctx_result.context_id
+"Step 3: TLS handshake (via TLS capability)"
+| tls ctxResult ctxId hsResult |
+tls := Canal capability: #tls.
+tls send: (object { op := 'create_context'. role := 'client'. verifyPeer := true }).
+ctxResult := tls receive: 64.
+ctxId := ctxResult contextId.
 
-send(tls, {op: "handshake", context_id: ctx_id, socket_id: sock_id,
-           host: "example.com", port: 443})
-let hs_result = recv(tls)
-if !hs_result.ok { println("TLS failed") }
+tls send: (object { op := 'handshake'. contextId := ctxId. socketId := sockId.
+                    host := 'example.com'. port := 443 }).
+hsResult := tls receive: 64.
+(hsResult ok) ifFalse: [ Console println: 'TLS failed' ].
 
-# Step 4: Send HTTP GET request
-send(tls, {op: "write", context_id: ctx_id,
-           data: "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"})
-recv(tls)   # discard write ack
+"Step 4: Send HTTP GET request"
+tls send: (object { op := 'write'. contextId := ctxId.
+                    data := 'GET / HTTP/1.1', String nl, 'Host: example.com', String nl, String nl }).
+tls receive: 32.   "discard write ack"
 
-# Step 5: Receive HTTP response
-send(tls, {op: "read", context_id: ctx_id, max_len: 1024})
-let resp = recv(tls)
-println(resp.data)
+"Step 5: Receive HTTP response"
+| resp |
+tls send: (object { op := 'read'. contextId := ctxId. maxLen := 1024 }).
+resp := tls receive: 1024.
+Console println: resp data printString.
 ```
 
 The domain boundary crossings in this example:
 
-1. picoceci → Wi-Fi domain (`service:wifi`): connect, socket create
-2. picoceci → TLS domain (`service:tls`): handshake, encrypt, decrypt
-3. TLS domain → Wi-Fi domain (`service:wifi`): socket send/receive (internal, not visible
+1. picoceci → Wi-Fi capability (`#wifi`): connect, socket create
+2. picoceci → TLS capability (`#tls`): handshake, encrypt, decrypt
+3. TLS domain → Wi-Fi domain (`#wifi`): socket send/receive (internal, not visible
    to the picoceci script)
 
 The picoceci domain never touches raw TCP bytes or TLS record parsing—both are handled by
@@ -395,38 +404,37 @@ their respective domains.
 
 ### 5.3 React to a Sensor Reading and Publish an MQTT Message
 
-*(illustrative — requires device:uart, service:wifi)*
+*(illustrative — requires `#uart` and `#wifi` capabilities)*
 
 ```picoceci
-let uart = open_channel("device:uart")
-let wifi = open_channel("service:wifi")
+| uart wifi |
+uart := UART new: 0 baud: 9600.
+wifi  := Canal capability: #wifi.
 
-# Configure UART for a temperature sensor at 9600 baud
-send(uart, {op: "configure", baud: 9600, bits: 8, parity: "none"})
-recv(uart)
+"Check Wi-Fi status"
+wifi send: (object { op := 'status' }).
+| status |
+status := wifi receive: 64.
+(status connected) ifFalse: [ Console println: 'not connected' ].
 
-# Connect to Wi-Fi (assume already connected; check status)
-send(wifi, {op: "status"})
-let status = recv(wifi)
-if !status.connected { println("not connected") }
+| publishMqtt |
+publishMqtt := [ :topic :payload |
+    "MQTT publish over TCP (simplified — assumes broker at 192.168.1.100:1883)"
+    wifi send: (object { op := 'create_socket'. protocol := 'tcp' }).
+    wifi receive: 64.
+    "… MQTT CONNECT packet, PUBLISH packet (omitted for brevity) …"
+    Console println: 'Published: ', payload printString, ' to ', topic printString
+  ].
 
-let publish_mqtt = fn(topic, payload) {
-  # MQTT publish over TCP (simplified — assumes broker at 192.168.1.100:1883)
-  send(wifi, {op: "create_socket", protocol: "tcp"})
-  let sock = recv(wifi)
-  # … MQTT CONNECT packet, PUBLISH packet (omitted for brevity) …
-  println("Published: " + payload + " to " + topic)
-}
-
-# Poll sensor every 10 seconds
-while true {
-  send(uart, {op: "read", max_len: 16})
-  let reading = recv(uart)
-  if reading.ok {
-    publish_mqtt("sensors/temperature", reading.data)
-  }
-  sleep_ms(10000)
-}
+"Poll sensor every 10 seconds"
+[ true ] whileTrue: [
+    | reading |
+    reading := uart readLine.
+    reading isNil ifFalse: [
+        publishMqtt value: 'sensors/temperature' value: reading
+    ].
+    Task delay: 10000
+].
 ```
 
 ---
@@ -494,10 +502,10 @@ a classroom, workshop, or solo project.
    domain manifest must declare, and explain what would happen at runtime if any one of
    those capabilities were missing.
 
-2. **Channel IPC mapping.** Write a short picoceci pseudo-program that opens a channel to
-   the Wi-Fi service domain, sends a connect request, waits for the acknowledgement, and
-   closes the channel on error. Add inline comments explaining how each channel operation
-   maps to the underlying Canal IPC mechanism described in Article 3.
+2. **Capability IPC mapping.** Write a short picoceci pseudo-program that acquires the
+   `#wifi` Canal capability, sends a connect request, waits for the acknowledgement, and
+   closes the capability on error. Add inline comments explaining how each capability
+   operation maps to the underlying Canal IPC mechanism described in Article 3.
 
 3. **Hot-patch hazards.** The article describes "hot-patching a running program without
    rebooting." Identify two situations where hot-patching would be unsafe and explain what
