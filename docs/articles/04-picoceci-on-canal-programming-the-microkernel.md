@@ -248,7 +248,7 @@ blinkTask := Task spawn: [
         Task delay: 500
     ]
   ].
-blinkTask name: 'blinker'.
+blinkTask name: 'blinker'.  "optional: name the task for the !caps inspector"
 ```
 
 While `blinkTask` runs in the background, the REPL remains responsive. Both tasks run
