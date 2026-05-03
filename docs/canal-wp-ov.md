@@ -5,7 +5,7 @@
 *Version 1.0 - May 2026*
 
 **Author:** Kristofer Younger, Director of Education, ZipCode Wilmington  
-**Repository:** https://github.com/kristofer/Canal  
+**Repository:** <https://github.com/kristofer/Canal>  
 **License:** MIT
 
 ---
@@ -36,6 +36,7 @@ Traditional MCU:
 ```
 
 **Real-world consequences:**
+
 - A buffer overflow in WiFi code corrupts sensor data
 - A faulty temperature sensor crashes the entire device
 - Updating one feature requires reflashing everything
@@ -44,7 +45,7 @@ Traditional MCU:
 
 ### 1.2 What Canal Changes
 
-Canal runs each function as an isolated **domain** with its own memory, permissions, and failure boundary:
+Canal runs each function as an isolated **domain** (like a program, but more protected/cocooned) with its own memory, permissions, and failure boundary:
 
 ```
 Canal MCU:
@@ -65,6 +66,7 @@ Bug in WiFi? → WiFi restarts
 ```
 
 **For students, this means:**
+
 - Experiment fearlessly - bugs are isolated
 - See how operating systems actually work
 - Learn security by design, not as an afterthought
@@ -77,9 +79,10 @@ Bug in WiFi? → WiFi restarts
 
 ### 2.1 Domains: Isolated Functions
 
-A **domain** is an isolated program running on the MCU. Think of it like a smartphone app, but for embedded systems.
+A **domain** is an isolated program running on the MCU. Think of it like a smartphone app, but for embedded systems. When it crashes, it doesn't take down the whole device - just that domain. Each domain has its own memory space and can only access hardware or services through explicit capabilities.
 
 **Example - Temperature Monitor System:**
+
 ```go
 // Domain 1: Temperature Sensor Reader
 package main
@@ -111,6 +114,7 @@ func main() {
 ```
 
 **What students learn:**
+
 - Each domain has a single responsibility (like microservices)
 - Domains communicate through message passing (no shared memory)
 - If sensor code crashes, logger keeps running
@@ -121,6 +125,7 @@ func main() {
 Domains communicate through **canals** - typed message channels built on Go's native channel system. Named after the original "ChannelOS" concept, canals enforce type safety and prevent unauthorized communication.
 
 **Example - Sensor to Logger Canal:**
+
 ```go
 // Sensor domain sends structured data
 type SensorReading struct {
@@ -129,7 +134,7 @@ type SensorReading struct {
     Humidity float32
 }
 
-// Send through canal
+// Send through canal (just a variable), which is a channel, only able to send/receive SensorReading types
 canal <- SensorReading{
     Timestamp: getCurrentTime(),
     Temperature: 23.5,
@@ -144,16 +149,22 @@ saveToFile(reading)
 ```
 
 **Benefits for learning:**
+
 - Type-safe communication (compiler catches mistakes)
 - No race conditions (channels are synchronized)
 - Clear data flow (request/response patterns)
 - Maps to Go concurrency students already know
 
+The Go programming model of _chan_nels fits perfectly with the concept of canals, making it intuitive for students to write concurrent, isolated code without worrying about low-level synchronization issues. No mutexes, no shared memory - just safe, structured communication.
+
+This allows students to focus on the logic of their applications while learning fundamental OS concepts like isolation, interprocess communication (IPC), and resource management in a real embedded environment.
+
 ### 2.3 Capabilities: Permission Tokens
 
-A **capability** is an unforgeable token granting specific permissions. You can't access hardware or services without the right capability.
+A **capability** is an un-forge-able token granting specific permissions to the domain. You can't access hardware or services without the right capability. It is like a "right" to the device or service. Without it, your domain is just code in memory with no power. With it, you can do specific things - but only what the capability allows.
 
 **Example - GPIO Access:**
+
 ```go
 // ❌ Traditional approach (direct hardware access)
 machine.GPIO8.High()  // Anyone can touch any pin
@@ -166,12 +177,16 @@ if ledPin != nil {
 ```
 
 **The Security Model:**
+
 1. **Least Privilege**: Domains only get what they need
 2. **No Ambient Authority**: Can't "just access" hardware
 3. **Explicit Delegation**: Capabilities can be transferred
 4. **Revocable**: Permissions can be taken away
 
 **Real IoT scenario:**
+
+This example shows how a temperature sensor domain only gets access to the I2C bus and logger service, but not WiFi or filesystem. Even if the sensor code is compromised, it can't send data over the network or modify files.
+
 ```
 Temperature Sensor Domain needs:
   ✓ I2C bus 0 (read) - for sensor
@@ -192,7 +207,12 @@ Temperature Sensor Domain needs:
 
 ### 3.1 Domain Crash Isolation
 
+When operating in a high-failure environment like IoT, crashes are inevitable. Traditional firmware crashes take down the whole device, requiring a physical reset and causing data loss. Canal's domain isolation means that if one domain crashes, it can be restarted without affecting others.
+
+This pushes the concept of "resilience" to the lowest level of the system. Instead of a single point of failure, each domain is a self-contained unit that can fail and recover independently. This is a fundamental shift in how embedded systems are designed and taught, as it allows students to see the benefits of fault isolation and recovery in real time.
+
 **Traditional firmware crash:**
+
 ```
 [10:23:14] Reading sensor...
 [10:23:15] WiFi connecting...
@@ -205,6 +225,7 @@ Temperature Sensor Domain needs:
 ```
 
 **Canal domain crash:**
+
 ```
 [10:23:14] [Sensor] Reading temperature: 23.5°C
 [10:23:15] [WiFi] Connecting to network...
@@ -252,6 +273,7 @@ func main() {
 ```
 
 **Expected output:**
+
 ```
 [WiFi] Starting...
 [Kernel] Domain 2 (wifi) crashed at 0x40001234
@@ -261,12 +283,17 @@ func main() {
 ```
 
 **What students learn:**
+
 - How operating systems handle faults
 - Importance of defensive programming
 - Difference between recoverable and fatal errors
 - How production IoT devices stay online
 
 ### 3.3 Network Partition Resilience
+
+Operating in a trusted, yet not quite reliable environment is a common scenario for IoT devices. Networks can drop, servers can go down, and power can fluctuate. Canal's domain isolation allows the device to continue functioning even when external dependencies fail.
+
+Wifi can go down, and instead of the whole device crashing or losing data, the sensor domain can keep reading and logging locally. When the network comes back, it can sync data without any loss. This teaches students about designing for real-world conditions where perfect connectivity can't be assumed. (Like on-board a ship in the middle of the ocean, or a weather station in a remote location, or a spacecraft orbiting Earth - all places where network reliability is not guaranteed.)
 
 **IoT Challenge:** WiFi drops, server goes down, or network splits
 
@@ -299,6 +326,7 @@ func main() {
 ```
 
 **Behavior:**
+
 - **Network available**: Upload readings, local backup
 - **Network down**: Save locally, retry on reconnect
 - **SD card fails**: Upload to cloud if possible
@@ -312,9 +340,18 @@ func main() {
 
 ### 4.1 Progressive Complexity Path
 
+Starting small and building up complexity is key to learning. Canal allows students to start with simple domains and gradually add more features, teaching new concepts at each step while reinforcing previous lessons.
+
+Decomposing a complex IoT system into isolated domains also teaches good software architecture principles, making it easier for students to manage complexity as they add features like networking, storage, and OTA updates.
+
+But we have to provide a student with getting *something* working early on to build confidence and motivation. (Even if that is nothing more than a blinking LED on an MCU board.) Then we can build on that foundation with more complex domains and interactions, showing how the concepts of isolation, capabilities, and resilience apply at each step.
+
 Canal allows students to start simple and add complexity gradually:
 
 #### **Week 1: Hello World Domain**
+
+Start really simply. Just blink an LED using a GPIO capability. This teaches the basics of domains, capabilities, and hardware access without overwhelming students with too many concepts at once.
+
 ```go
 package main
 
@@ -329,9 +366,13 @@ func main() {
     }
 }
 ```
+
 **Learning:** Domain basics, capability requests, GPIO control
 
 #### **Week 2: Sensor Reading Domain**
+
+Adds a sensor domain that reads from a BME280 temperature/humidity sensor over I2C. This introduces students to hardware communication protocols and structured data, while still keeping the domain simple and focused.
+
 ```go
 package main
 
@@ -346,9 +387,13 @@ func main() {
     }
 }
 ```
+
 **Learning:** I2C communication, sensor protocols, structured data
 
 #### **Week 3: Multi-Domain System**
+
+Capturing data and then logging it to an SD card in a separate domain. This teaches inter-domain communication through canals, as well as the concept of decoupling different functions into separate domains.
+
 ```go
 // Sensor Domain → Logger Domain → Display Domain
 
@@ -364,9 +409,13 @@ displayCanal <- reading
 reading := <-displayCanal
 updateOLED(reading.Temp, reading.Humidity)
 ```
+
 **Learning:** Inter-domain communication, data pipelines, decoupling
 
 #### **Week 4: Network-Connected System**
+
+Adding in the networking domain to upload data to the cloud. This introduces students to network programming, REST APIs, and error handling in a distributed system, while still maintaining isolation between domains.
+
 ```go
 // Weather Station: Sensor → Logger → WiFi Uploader
 
@@ -377,9 +426,13 @@ wifi.Connect("MyNetwork", "password")
 server := requestCapability("service:http-client")
 server.Post("https://api.weather.com/readings", reading)
 ```
+
 **Learning:** Network protocols, REST APIs, error handling
 
 #### **Week 5: Production System**
+
+Now we have a complete IoT device with sensor reading, local logging, and cloud connectivity. We can add an **over-the-air** (OTA) update domain to show how devices can be maintained after deployment, teaching students about real-world device management and versioning.
+
 ```go
 // Complete IoT device with OTA updates
 
@@ -391,12 +444,19 @@ if updater.CheckForUpdate() {
     // Sensor domain automatically restarts with new code
 }
 ```
+
 **Learning:** Device management, versioning, deployment
 
 ### 4.2 Hands-On Projects for Students
 
 #### **Project 1: Smart Plant Monitor**
+
+Larger systems that are inter-related but still isolated are great for teaching the value of domain separation. A smart plant monitor with multiple sensors, a water pump, local logging, and cloud connectivity can be broken down into several domains that interact through canals, demonstrating how complex systems can be built from simple, isolated components.
+
+Each of these domains can be developed and tested independently, allowing students to see the benefits of isolation and modularity while building a real-world IoT application.
+
 **Domains:**
+
 - Soil moisture sensor reader
 - Water pump controller
 - Data logger to SD card
@@ -404,6 +464,7 @@ if updater.CheckForUpdate() {
 - Alert system (SMS/email)
 
 **Learning objectives:**
+
 - Analog sensor interfacing
 - Actuator control with safety limits
 - Time-series data storage
@@ -411,6 +472,7 @@ if updater.CheckForUpdate() {
 - External API integration
 
 **Failure scenarios to handle:**
+
 - Sensor disconnected
 - Pump stuck on/off
 - SD card full
@@ -418,7 +480,11 @@ if updater.CheckForUpdate() {
 - Server unreachable
 
 #### **Project 2: Air Quality Monitor**
+
+Onboard an aircraft or spacecraft, you can't afford to have a single point of failure. An air quality monitor with multiple sensors (particulate matter, temperature/humidity), a local display, and cloud connectivity can be designed with strict domain isolation to ensure that if one sensor fails or the network goes down, the device continues to function and provide critical information. This project teaches students about designing for high-reliability environments and the importance of fault tolerance in IoT systems.
+
 **Domains:**
+
 - Particulate matter sensor (PM2.5/PM10)
 - Temperature/humidity sensor
 - OLED display controller
@@ -426,6 +492,7 @@ if updater.CheckForUpdate() {
 - Local data cache
 
 **Learning objectives:**
+
 - Multiple I2C devices on one bus
 - Display graphics and UI
 - Cloud platform integration (ThingSpeak, Adafruit IO)
@@ -433,7 +500,13 @@ if updater.CheckForUpdate() {
 - Power management
 
 #### **Project 3: Smart Doorbell**
+
+But we also need to show how real-world IoT devices often have multiple functions that need to be isolated for security. A smart doorbell with a motion sensor, camera, local storage, WiFi connectivity, and audio playback can be designed with strict domain separation to prevent a compromise in one area (like the camera) from affecting the entire system. This project teaches students about designing secure IoT devices where sensitive functions are isolated from network-facing components.
+
+This kind of project is also a lot more comprehensiable and fun for student whose imagination is not yet able to grasp the problems of a spacecraft and Deep Black of space.
+
 **Domains:**
+
 - Motion sensor (PIR)
 - Camera controller
 - Image storage
@@ -441,6 +514,7 @@ if updater.CheckForUpdate() {
 - Audio playback
 
 **Learning objectives:**
+
 - Interrupt-driven sensors
 - Camera interfacing and JPEG encoding
 - File system management
@@ -452,7 +526,10 @@ Each domain runs with minimal permissions. Camera domain can't send images over 
 
 ### 4.3 Teaching Security Through Practice
 
+These example exercises show how students can learn about security concepts like isolation, least privilege, and defense in depth by trying to break the system themselves. By attempting to access memory from another domain or forge capabilities, students see firsthand how hardware-enforced protections work and why they are essential for secure IoT design.
+
 #### **Exercise: Breaking Isolation**
+
 Give students a challenge: "Try to access another domain's memory"
 
 ```go
@@ -469,6 +546,7 @@ func main() {
 ```
 
 **Expected result:**
+
 ```
 [Kernel] Domain 5 (attacker) crashed
 [Kernel] Fault: Memory protection violation
@@ -477,11 +555,13 @@ func main() {
 ```
 
 **What students learn:**
+
 - Hardware memory protection is real
 - Isolation isn't just software convention
 - Security is enforced by hardware, not trust
 
 #### **Exercise: Capability Forgery**
+
 Challenge: "Create a GPIO capability without requesting it"
 
 ```go
@@ -509,9 +589,14 @@ func main() {
 
 ## 5. Over-The-Air (OTA) Updates: Maintaining Deployed Devices
 
+OTA will be required for any real-world IoT device, but traditional firmware updates are risky and often fail in practice. Canal's domain isolation allows for granular updates to specific domains without risking the entire device, making OTA updates safer and more reliable. This is a critical concept for students to understand, as it reflects the realities of managing IoT devices in the field where bugs are inevitable and physical access is often impossible.
+
 ### 5.1 The Problem with Traditional Firmware Updates
 
+Breaking the world is bad in IoT, and breaking the device is the start of all that. Traditional firmware updates require flashing an entire new binary, which can fail due to power loss, network issues, or bugs in the update itself. If the update fails, the device is often bricked and requires physical intervention to recover.
+
 **Current state of IoT updates:**
+
 ```
 To update a smart thermostat:
 1. Download 2MB firmware file
@@ -523,6 +608,7 @@ To update a smart thermostat:
 ```
 
 **Why this fails in practice:**
+
 - Users won't update (too complex)
 - Power loss during update = bricked device
 - All-or-nothing: can't rollback
@@ -531,7 +617,14 @@ To update a smart thermostat:
 
 ### 5.2 Canal's Granular OTA
 
+Imagining a flash layout where each domain is stored in its own partition, Canal can update just the sensor domain without touching the WiFi or logger domains. If the new sensor code has a bug, it can be rolled back without affecting the rest of the system.
+
+We need to allow students develop the mental models of this type of systemic environment where the device is not a single monolithic blob of code, but a collection of isolated components that can be updated independently. This is a fundamental shift in how embedded systems are designed and taught, and it prepares students for the realities of modern IoT development where devices must be maintained and updated over their lifecycle.
+
+And then, when viewed at the overall level of the network, many the student sees the interrelated groups of devices, each with their own domains and capabilities, all communicating through canals. This is the real world of IoT, and Canal gives students a hands-on experience with it.
+
 **Canal updates individual domains:**
+
 ```
 Flash Layout:
 ┌─────────────────────────────────────┐
@@ -552,6 +645,7 @@ To fix sensor bug:
 ```
 
 **Update flow:**
+
 ```go
 // OTA Updater Domain
 package main
@@ -592,7 +686,10 @@ func main() {
 
 ### 5.3 Rollback and Safety
 
+And when the code fails, and it will, how does the device recover? Canal can automatically roll back to the previous version if the new domain crashes repeatedly, ensuring that the device remains functional even if an update introduces a critical bug. This teaches students about the importance of resilience and recovery in IoT systems, as well as the practical challenges of maintaining devices in the field.
+
 **Version tracking:**
+
 ```
 Flash Partitions:
 ┌─────────────────────────────────────┐
@@ -621,6 +718,7 @@ func main() {
 ```
 
 **Expected behavior:**
+
 ```
 [Kernel] Sensor v1.1 starting...
 [Sensor v1.1] Starting with intentional bug...
@@ -639,6 +737,8 @@ func main() {
 
 ### 5.4 Real-World Application
 
+But while spacecraft are the shiny, future, students will be more comfortable with the familiar, and the familiar is the smart home. So we can show how this same approach applies to a common IoT device like a smart thermostat, where a bug in the sensor code could cause incorrect temperature readings, but with Canal's domain isolation and OTA updates, the issue can be fixed without bricking the device or requiring customer intervention.
+
 **Smart Home Thermostat Example:**
 
 Deployed: 10,000 thermostats in homes
@@ -646,17 +746,20 @@ Deployed: 10,000 thermostats in homes
 **Bug found:** Temperature sensor reads 10°F too high in summer
 
 **Traditional approach:**
+
 - Email 10,000 customers
 - Hope they update
 - Result: 2% update rate, 98% have broken devices
 
 **Canal approach:**
+
 1. Push sensor domain update v1.2 to update server
 2. Devices automatically download and install overnight
 3. If any device has issues, auto-rollback to v1.1
 4. Result: 100% update rate, zero customer intervention, zero downtime
 
 **What students learn:**
+
 - Real-world device management
 - Importance of atomic updates
 - Rollback strategies
@@ -666,14 +769,18 @@ Deployed: 10,000 thermostats in homes
 
 ## 6. Educational Advantages
 
+We cannot overemphasize how important it is for students to experience these concepts in a real embedded environment, rather than just in theory or in an emulator. If *touch grass* resets a student to real-world grounding, then *touch hardware* helps them understand the realities of embedded systems development. Canal's design allows students to see the immediate consequences of their code, understand how operating systems manage resources, and learn security principles through practice. This hands-on experience is invaluable for preparing students for careers in IoT development, where they will need to design secure, resilient systems that can operate in the real world.
+
 ### 6.1 Learning Operating System Concepts on Real Hardware
 
 **Traditional OS course:**
+
 - Theoretical lectures about processes, scheduling, memory protection
 - Maybe write toy OS in emulator
 - Never see it run on real hardware
 
 **Canal approach:**
+
 - Run actual OS on $10 ESP32 board
 - See domains scheduled by FreeRTOS
 - Watch MMU protect memory
@@ -695,13 +802,18 @@ Deployed: 10,000 thermostats in homes
 ### 6.2 Security by Design, Not as Afterthought
 
 **Traditional embedded course:**
+
 ```
 Week 1-8: Build working system
 Week 9: "Now let's add security..."
          (Usually runs out of time)
 ```
 
+This is not a good idea. Security is not a feature you can bolt on at the end - it's a fundamental aspect of how the system is designed and built. By teaching security concepts from day one through Canal's architecture, students learn to think about security as an integral part of their code, rather than an afterthought. They see how isolation, least privilege, and defense in depth work in practice, and they understand the
+real-world consequences of security failures in embedded systems.
+
 **Canal course:**
+
 ```
 Day 1: Request capability to blink LED
        ↑ Security from the start
@@ -717,32 +829,46 @@ Day 1: Request capability to blink LED
 
 **Example assignment progression:**
 
-**Week 1:** Blink LED using GPIO capability
+**Day 1:** Blink LED using GPIO capability
+
 - Learn: Permission model
 
-**Week 2:** Read sensor, log to SD card
+**Day 2:** Read sensor, log to SD card
+
 - Learn: Multiple capabilities, resource sharing
 
-**Week 3:** Add WiFi uploader domain
+**Day 3:** Add WiFi uploader domain
+
 - Learn: Network isolation
 
-**Week 4:** Try to make WiFi domain read sensor directly
+**Day 4:** Try to make WiFi domain read sensor directly
+
 - Learn: Fails! Must communicate through canal
 
-**Week 5:** Implement encrypted sensor data
+**Day
+ 5:** Implement encrypted sensor data
+
 - Learn: TLS domain holds keys, sensor can't see them
 
+And at the end of this project, students will have a real IoT device running on actual hardware, with security principles built in from the ground up. They will understand how to design and build secure embedded systems, and they will be prepared for the challenges of real-world IoT development.
+
 ### 6.3 Modern Language for Embedded Systems
+
+building canal and picoceci in **Go** (and then using **TinyGo** for the embedded domains) is a deliberate choice to make embedded systems programming more accessible and less error-prone for students. Go's memory safety, built-in concurrency, and modern tooling provide a much better learning experience than traditional C/C++ for embedded development. This allows students to focus on learning core concepts like isolation and capabilities without getting bogged down in low-level details that can lead to frustration and discouragement.
+
+But the use of Go in a real-time context always makes the spectre of GC pauses and non-determinism loom over the project. This is where **TinyGo** comes in, allowing us to compile Go code down to bare-metal without a runtime, giving us the performance and predictability needed for embedded systems while still benefiting from Go's language features. This combination allows students to experience the best of both worlds: the safety and ease of Go with the performance and control of traditional embedded programming.
 
 **Why Go/TinyGo matters:**
 
 Traditional embedded: C/C++
+
 - Manual memory management
 - Easy to crash
 - Hard to write concurrent code
 - Steep learning curve
 
 Canal: Go
+
 - Garbage collected (per domain)
 - Memory safe by default
 - Built-in concurrency (goroutines, channels)
@@ -751,6 +877,7 @@ Canal: Go
 **Code comparison:**
 
 **C approach:**
+
 ```c
 // Traditional embedded C
 uint8_t* buffer = malloc(1024);
@@ -767,6 +894,7 @@ free(buffer);  // Forgot this? Memory leak!
 ```
 
 **Go approach:**
+
 ```go
 // Canal domain in Go
 buffer := make([]byte, 1024)
@@ -779,6 +907,7 @@ reading := readSensor()
 **Concurrency comparison:**
 
 **C approach:**
+
 ```c
 // Manual threading and synchronization
 pthread_t sensor_thread;
@@ -790,6 +919,7 @@ pthread_mutex_unlock(&data_lock);
 ```
 
 **Go approach:**
+
 ```go
 // Canal concurrency
 go readSensor()  // Goroutine
@@ -797,6 +927,10 @@ canal <- data    // Thread-safe by design
 ```
 
 ### 6.4 Incremental Learning Path
+
+As a potential curriculum for a semester-long course, we can start with simple domains and gradually add complexity, teaching new concepts at each step while reinforcing previous lessons. This allows students to build confidence and understanding incrementally, rather than being overwhelmed by a complex system from the start.
+
+We do not consider this curriculum to be all that useful, as with modern AI agent assited environments, development (and hence, **learning**) can be much faster and more iterative than a traditional semester-long course.
 
 **Semester 1: IoT Fundamentals with Canal**
 
@@ -828,9 +962,12 @@ canal <- data    // Thread-safe by design
 
 ## 7. Comparison with Other Embedded Systems
 
+There many systems for these types of devices, but they all have their own trade-offs and limitations. By comparing Canal to other popular embedded platforms like Arduino, FreeRTOS, and Linux on embedded, we can highlight the unique advantages of Canal's architecture and design, and show why it is different for teaching modern IoT development.
+
 ### 7.1 Arduino
 
 **Arduino:**
+
 ```cpp
 void setup() {
     Serial.begin(9600);
@@ -847,12 +984,14 @@ void loop() {
 ```
 
 **Limitations:**
+
 - No isolation (one crash = dead device)
 - No memory protection
 - Cooperative multitasking only
 - Hard to update in field
 
 **Canal equivalent:**
+
 - Four separate domains
 - Hardware-enforced isolation
 - Preemptive multitasking
@@ -864,7 +1003,12 @@ void loop() {
 
 ### 7.2 FreeRTOS
 
+Yes, yes, we use FreeRTOS underneath Canal, but the way we use it is very different from how it's typically used in embedded development. FreeRTOS is often used as a simple scheduler for a single monolithic firmware, where all tasks share the same memory and can easily corrupt each other. Canal, on the other hand, uses FreeRTOS for scheduling but adds a layer of memory protection and capabilities to create true isolation between domains. This allows us to teach students about operating system concepts like processes, IPC, and memory protection in a real embedded environment, which is not possible with traditional FreeRTOS usage.
+
+We also think the esp32s3 with it's memory protection unit (MPU) is a much better platform for teaching these concepts than the typical Cortex-M0/M3/M4 boards that FreeRTOS is often used on, which lack hardware memory protection and make it harder to demonstrate isolation and security principles. (Or which require a lot more software to introduce the concepts that are built into the hardware of the esp32s3.)
+
 **FreeRTOS (traditional):**
+
 ```c
 void sensor_task(void* params) {
     while(1) {
@@ -884,6 +1028,7 @@ void logger_task(void* params) {
 ```
 
 **Canal on FreeRTOS:**
+
 - Uses FreeRTOS for scheduling
 - Adds memory protection (MPU/MMU)
 - Adds capability system
@@ -893,7 +1038,12 @@ void logger_task(void* params) {
 
 ### 7.3 Linux on Embedded
 
+We love Linux, we really do. BUT, Linux is a full operating system with all the features and complexity that comes with it, which makes it a great choice for powerful embedded devices like the Raspberry Pi, but it's often overkill for simple IoT sensors and actuators. Canal is designed to run on microcontrollers with limited resources, where a full Linux OS would be too heavy and complex. By comparing Canal to Linux on embedded, we can show students the trade-offs between a full OS and a lightweight, purpose-built OS like Canal, and help them understand when each is appropriate.
+
+Imagining a series of Linux servers, managing a large network of small, yet mighty, MCU-based devices running Canal. The Linux servers can handle complex tasks like data aggregation, machine learning, and user interfaces, while the Canal devices focus on real-time sensing and actuation with strong isolation and security. This is a common architecture in IoT systems, where edge devices run lightweight OSes for local processing and security, while cloud or gateway servers run full OSes for heavy lifting.
+
 **Embedded Linux:**
+
 - Full OS features
 - Large memory footprint (32MB+ RAM)
 - Long boot time (10+ seconds)
@@ -901,12 +1051,14 @@ void logger_task(void* params) {
 - Overkill for simple sensors
 
 **Canal:**
+
 - Kernel + domains < 1MB
 - Boot time < 1 second
 - Simple build (TinyGo + Make)
 - Perfect for MCUs (512KB RAM)
 
 **Use case distinction:**
+
 - Linux: Raspberry Pi, multimedia, complex applications
 - Canal: ESP32, sensors, battery-powered, real-time
 
@@ -914,14 +1066,18 @@ void logger_task(void* params) {
 
 ## 8. Getting Started: Student Quick Start Guide
 
+So how can we build this thing and get it running on real hardware? This section provides a step-by-step guide for students to set up their development environment, build Canal, and run their first domain on an ESP32-S3 board. We want to make it as easy as possible for students to get started and see results quickly, so they can stay motivated and engaged as they learn the concepts of operating systems, security, and IoT development through hands-on experience.
+
 ### 8.1 Hardware Requirements
 
 **Minimum setup ($15):**
+
 - ESP32-S3 DevKit ($10)
 - USB-C cable ($3)
 - Breadboard and LEDs ($2)
 
 **Full IoT kit ($75):**
+
 - ESP32-S3 DevKit ($10)
 - BME280 temperature/humidity sensor ($5)
 - SD card module ($3)
@@ -932,13 +1088,17 @@ void logger_task(void* params) {
 - 5V power supply ($6)
 
 **Optional advanced:**
+
 - Logic analyzer (debugging)
 - Oscilloscope (signal analysis)
 - Multiple ESP32 boards (distributed systems)
 
 ### 8.2 Software Installation
 
+Yes, we also have to give you all the magic incantations that you need to get the software installed and running. This includes installing TinyGo for compiling Go code to the ESP32, setting up the ESP-IDF for the underlying FreeRTOS kernel, and cloning the Canal repository to get the source code. We want to make this as straightforward as possible, with clear instructions and expected outputs, so that students can get up and running quickly and start experimenting with their own domains.
+
 **Step 1: Install TinyGo**
+
 ```bash
 # macOS
 brew install tinygo
@@ -952,6 +1112,7 @@ Download from tinygo.org/getting-started/install
 ```
 
 **Step 2: Install ESP-IDF (for ESP32 targets)**
+
 ```bash
 git clone --recursive https://github.com/espressif/esp-idf.git
 cd esp-idf
@@ -960,6 +1121,7 @@ cd esp-idf
 ```
 
 **Step 3: Clone Canal**
+
 ```bash
 git clone https://github.com/kristofer/Canal.git
 cd Canal
@@ -967,6 +1129,7 @@ cd Canal
 ```
 
 **Step 4: Build and Flash**
+
 ```bash
 make TARGET=esp32s3
 make flash PORT=/dev/ttyUSB0
@@ -974,6 +1137,7 @@ make monitor
 ```
 
 **Expected output:**
+
 ```
 === Canal OS Boot ===
 [Kernel] Initializing...
@@ -988,6 +1152,7 @@ make monitor
 **Objective:** Create an isolated domain that blinks an LED
 
 **File:** `domains/my-led/main.go`
+
 ```go
 //go:build tinygo
 
@@ -1038,12 +1203,13 @@ const (
 ```
 
 **Build and test:**
+
 ```bash
 # Add to Makefile
 my-led:
-	$(TINYGO) build $(TINYGO_FLAGS) \
-		-o $(OUT_DIR)/my-led.elf \
-		domains/my-led/main.go
+ $(TINYGO) build $(TINYGO_FLAGS) \
+  -o $(OUT_DIR)/my-led.elf \
+  domains/my-led/main.go
 
 # Build
 make my-led
@@ -1056,6 +1222,7 @@ make monitor
 ```
 
 **Questions for students:**
+
 1. What happens if you request GPIO 9 instead of 8?
 2. What happens if you request RightRead instead of RightWrite?
 3. Can you crash this domain? What happens to other domains?
@@ -1066,6 +1233,7 @@ make monitor
 **Objective:** Create two domains that communicate through a canal
 
 **Sensor domain:**
+
 ```go
 // domains/temp-sensor/main.go
 package main
@@ -1091,6 +1259,7 @@ func main() {
 ```
 
 **Logger domain:**
+
 ```go
 // domains/data-logger/main.go
 package main
@@ -1112,6 +1281,7 @@ func main() {
 ```
 
 **Learning objectives:**
+
 - Inter-domain communication
 - Structured data types
 - File system operations
@@ -1124,6 +1294,7 @@ func main() {
 ### 9.1 Current Status (May 2026)
 
 **Implemented:**
+
 - ✅ FreeRTOS substrate on ESP32-S3
 - ✅ Domain spawning and isolation
 - ✅ Basic capability system
@@ -1131,12 +1302,14 @@ func main() {
 - ✅ LED blinker as isolated domain
 
 **In Progress:**
+
 - 🚧 ELF loader for dynamic domain loading
 - 🚧 MMU configuration for ESP32-S3
 - 🚧 Full capability table implementation
 - 🚧 Inter-domain canals
 
 **Planned:**
+
 - 📋 System service domains (WiFi, TLS, Filesystem)
 - 📋 OTA update mechanism
 - 📋 Multi-core support
@@ -1172,25 +1345,29 @@ func main() {
 **Ways students can contribute:**
 
 **Beginner:**
+
 - Add new example domains
 - Write tutorials and documentation
 - Test on different hardware platforms
 - Report bugs and issues
 
 **Intermediate:**
+
 - Implement system service domains
 - Add sensor drivers
 - Create testing frameworks
 - Port to new MCUs
 
 **Advanced:**
+
 - Kernel improvements
 - Security analysis
 - Performance optimization
 - Formal methods
 
 **Process:**
-1. Fork https://github.com/kristofer/Canal
+
+1. Fork <https://github.com/kristofer/Canal>
 2. Create feature branch
 3. Implement and test
 4. Submit pull request
@@ -1203,6 +1380,7 @@ func main() {
 The Internet of Things is growing exponentially, but traditional embedded development practices don't scale. Teaching students to write monolithic firmware prepares them for yesterday's problems, not tomorrow's challenges.
 
 **Canal teaches the right concepts:**
+
 - **Isolation** - Failures should be contained
 - **Least privilege** - Grant minimal permissions
 - **Explicit communication** - Message passing over shared memory
@@ -1210,12 +1388,14 @@ The Internet of Things is growing exponentially, but traditional embedded develo
 - **Maintainability** - Update deployed devices safely
 
 **These aren't just embedded systems concepts** - they're the same principles behind:
+
 - Microservices architectures
 - Container orchestration (Kubernetes)
 - Cloud security models
 - Operating system design
 
 **By learning Canal, students gain:**
+
 1. **Practical OS knowledge** - Run real OS on $10 hardware
 2. **Security mindset** - Design secure systems from day one
 3. **Modern development** - Go instead of C, but for embedded
@@ -1228,13 +1408,15 @@ Canal makes embedded systems development accessible, safe, and educational. Stud
 IoT isn't going away. The next generation of developers needs to build it right.
 
 **Learn more:**
-- **Repository:** https://github.com/kristofer/Canal
+
+- **Repository:** <https://github.com/kristofer/Canal>
 - **Documentation:** See `docs/` folder
 - **Examples:** See `examples/` folder
 - **Community:** Open issues, discussions, and pull requests welcome
 
 **For educators:**
 If you're interested in using Canal in your IoT or embedded systems course, contact:
+
 - Kris Raney - ZipCode Wilmington
 - GitHub: @kristofer
 
@@ -1245,6 +1427,7 @@ If you're interested in using Canal in your IoT or embedded systems course, cont
 **Smart Weather Station System**
 
 **Architecture:**
+
 ```
 ┌──────────────┐
 │   Kernel     │
@@ -1259,6 +1442,7 @@ If you're interested in using Canal in your IoT or embedded systems course, cont
 ```
 
 **Domain 1: BME280 Sensor**
+
 ```go
 package main
 
@@ -1301,6 +1485,7 @@ func main() {
 ```
 
 **Domain 2: OLED Display**
+
 ```go
 package main
 
@@ -1326,6 +1511,7 @@ func main() {
 ```
 
 **Domain 3: Data Logger**
+
 ```go
 package main
 
@@ -1356,6 +1542,7 @@ func main() {
 ```
 
 **Domain 4: WiFi Uploader**
+
 ```go
 package main
 
@@ -1394,6 +1581,7 @@ func main() {
 ```
 
 **Domain 5: OTA Updater**
+
 ```go
 package main
 
@@ -1420,12 +1608,14 @@ func main() {
 ```
 
 **Building the system:**
+
 ```bash
 make TARGET=esp32s3 sensor display logger uploader ota
 make flash
 ```
 
 **Result:** Complete weather station that:
+
 - Reads sensors every 5 seconds
 - Displays on OLED immediately
 - Logs to SD card continuously
@@ -1470,29 +1660,26 @@ make flash
 **End of Whitepaper**
 
 *This whitepaper describes Canal v0.1.0-alpha (May 2026)*  
-*For latest information, see https://github.com/kristofer/Canal*  
+*For latest information, see <https://github.com/kristofer/Canal>*  
 *© 2026 Kris Raney, ZipCode Wilmington - Released under MIT License*
 
 ---
 
 **Document Metadata:**
+
 - **Version:** 1.0
 - **Date:** May 3, 2026
 - **Target Audience:** Undergraduate/Graduate CS students, Embedded Systems students, IoT developers
 - **Prerequisites:** Basic programming, understanding of hardware concepts
 - **Reading Time:** ~45 minutes
 - **Suggested Use:** Course textbook supplement, workshop material, self-study guide
+
 ```
 
-This whitepaper provides:
+So, if _Canal_ works for some smaller projects and systems, then it can work for larger ones too. The same principles of isolation, capabilities, and modularity apply regardless of scale. By building a solid foundation with Canal on simple devices, students can gain the confidence and skills to tackle more complex systems in the future, whether that's a smart home device, an industrial sensor network, or even a spacecraft. 
 
-1. **Clear educational framing** - Written for students, not researchers
-2. **Progressive complexity** - Starts simple, builds to advanced
-3. **Practical examples** - Real code students can run
-4. **Motivation** - Why this matters for IoT careers
-5. **Hands-on labs** - Exercises students can complete
-6. **Real-world applications** - OTA updates, production deployment
-7. **Security education** - Built into every example
-8. **Modern tooling** - Go instead of C, but still low-level
+Spacecraft, larger and more complex than the ones we have now like Artemis, will need well-designed, resilient, evolutionary systems to manage the myriad of systems and sub-systems to function. Environmental Life Support, Power, Communications, Sensors, Food Production, Command-and-Control systems all need to work seamlessly together. 
 
-The paper positions Canal as both a teaching tool and a practical IoT platform, emphasizing resilience, security, and maintainability - all critical for modern IoT development.
+Networks of many, many, smaller, simpler devices (like MCUs) running Canal could be used to manage these complex systems, with each domain responsible for a specific function and communicating securely with other domains as needed.
+
+All of this needs to be designed with security and reliability in mind, as failures can have catastrophic consequences. By learning these principles through Canal, students will be better prepared to design and build the next generation of space systems that can operate safely and effectively in the harsh environment of space.
