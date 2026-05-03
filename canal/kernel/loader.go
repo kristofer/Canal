@@ -48,9 +48,12 @@ type elf32ProgramHeader struct {
 }
 
 const ptLOAD uint32 = 1
+const pfWrite uint32 = 2 // ELF PF_W flag — segment is writable
 
-// flashBytes returns a read-only slice of flash bytes at the given offset.
-// The ESP32-S3 maps flash to 0x42000000 so no SPI transaction is needed.
+// flashBytes returns a read-only slice of flash bytes at the given offset
+// using the ESP32-S3 DCache window (0x3C000000).  This window provides
+// data-side (load/store) access to flash; the separate ICache window
+// (0x42000000) is instruction-fetch-only and is used for XIP text execution.
 func flashBytes(offset uint32, length uint32) []byte {
 	ptr := unsafe.Pointer(uintptr(flashXIPBase + offset))
 	return (*[1 << 24]byte)(ptr)[:length:length]
@@ -84,6 +87,13 @@ func LoadDomain(partitionOffset uint32) (entryPoint uint32, err error) {
 		ph := (*elf32ProgramHeader)(unsafe.Pointer(&phBytes[0]))
 
 		if ph.Type != ptLOAD || ph.MemSz == 0 {
+			continue
+		}
+
+		// Skip non-writable segments (XIP text/read-only data).
+		// Code executes directly from flash via the ICache; attempting to
+		// write to a flash-mapped virtual address causes a CPU fault.
+		if ph.Flags&pfWrite == 0 {
 			continue
 		}
 

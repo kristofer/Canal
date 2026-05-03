@@ -9,12 +9,12 @@ import (
 )
 
 // domain_entry is called by the kernel's ELF loader via xTaskCreate.
-// It runs in a FreeRTOS task context with no TinyGo runtime init, so it
-// must not use goroutines or the GC. It calls the domain's main loop directly.
+// It runs as a FreeRTOS task; FreeRTOS passes a single void* pvParameters
+// argument which we ignore here.
 //
 //export domain_entry
-func domain_entry(domainID uint16, syscallQ, replyQ unsafe.Pointer) {
-	println("[LED] Domain", domainID, "starting from flash")
+func domain_entry(_ unsafe.Pointer) {
+	println("[LED] Domain starting from flash")
 	runLED()
 }
 

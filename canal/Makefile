@@ -76,6 +76,7 @@ led: _check_tinygo
 		-target=$(TINYGO_TARGET) \
 		-opt=2 \
 		$(EXTRA_TAGS) \
+		-ldflags="-e domain_entry" \
 		-o $(OUT_DIR)/led.elf \
 		.
 	@echo "Built: build/out/led.elf"
@@ -87,6 +88,7 @@ wifi: _check_tinygo
 		-target=$(TINYGO_TARGET) \
 		-opt=2 \
 		$(EXTRA_TAGS) \
+		-ldflags="-e domain_entry" \
 		-o $(OUT_DIR)/wifi.elf \
 		./cmd/esp32s3
 	@echo "Built: build/out/wifi.elf"
@@ -98,6 +100,7 @@ logger: _check_tinygo
 		-target=$(TINYGO_TARGET) \
 		-opt=2 \
 		$(EXTRA_TAGS) \
+		-ldflags="-e domain_entry" \
 		-o $(OUT_DIR)/logger.elf \
 		.
 	@echo "Built: build/out/logger.elf"
@@ -113,7 +116,7 @@ flash: _check_tinygo _check_port
 
 flash-domains: _check_port led wifi logger
 	@echo "Flashing all domain binaries to $(PORT)..."
-	esptool.py --chip esp32s3 --port $(PORT) --baud 921600 write_flash \
+	esptool --chip esp32s3 --port $(PORT) --baud 921600 write-flash \
 		0x100000 $(OUT_DIR)/led.elf \
 		0x180000 $(OUT_DIR)/wifi.elf \
 		0x200000 $(OUT_DIR)/logger.elf
@@ -130,19 +133,19 @@ flash-all: _check_tinygo _check_port
 # Re-flash a single domain without touching the kernel.
 flash-led: _check_port led
 	@echo "Flashing LED domain to $(PORT) at 0x100000..."
-	esptool.py --chip esp32s3 --port $(PORT) --baud 921600 write_flash \
+	esptool --chip esp32s3 --port $(PORT) --baud 921600 write-flash \
 		0x100000 $(OUT_DIR)/led.elf
 	@echo "LED domain flashed"
 
 flash-wifi: _check_port wifi
 	@echo "Flashing WiFi domain to $(PORT) at 0x180000..."
-	esptool.py --chip esp32s3 --port $(PORT) --baud 921600 write_flash \
+	esptool --chip esp32s3 --port $(PORT) --baud 921600 write-flash \
 		0x180000 $(OUT_DIR)/wifi.elf
 	@echo "WiFi domain flashed"
 
 flash-logger: _check_port logger
 	@echo "Flashing Logger domain to $(PORT) at 0x200000..."
-	esptool.py --chip esp32s3 --port $(PORT) --baud 921600 write_flash \
+	esptool --chip esp32s3 --port $(PORT) --baud 921600 write-flash \
 		0x200000 $(OUT_DIR)/logger.elf
 	@echo "Logger domain flashed"
 

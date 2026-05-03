@@ -8,10 +8,11 @@ import (
 )
 
 // domain_entry is called by the kernel's ELF loader via xTaskCreate.
+// FreeRTOS passes a single void* pvParameters argument which we ignore here.
 //
 //export domain_entry
-func domain_entry(domainID uint16, syscallQ, replyQ unsafe.Pointer) {
-	println("[WiFi] Domain", domainID, "starting from flash")
+func domain_entry(_ unsafe.Pointer) {
+	println("[WiFi] Domain starting from flash")
 	runWiFi()
 }
 
