@@ -4,7 +4,7 @@
 
 *Version 1.0 - May 2026*
 
-**Author:** Kristofer Younger, Director of Education, ZipCode Wilmington  
+**Author:** Kristofer Younger, Director of Education, ZipCodeWilmington  
 **Repository:** <https://github.com/kristofer/Canal>  
 **License:** MIT
 
@@ -1417,7 +1417,7 @@ IoT isn't going away. The next generation of developers needs to build it right.
 **For educators:**
 If you're interested in using Canal in your IoT or embedded systems course, contact:
 
-- Kris Raney - ZipCode Wilmington
+- Kristofer Younger - ZipCodeWilmington
 - GitHub: @kristofer
 
 ---
@@ -1661,7 +1661,7 @@ make flash
 
 *This whitepaper describes Canal v0.1.0-alpha (May 2026)*  
 *For latest information, see <https://github.com/kristofer/Canal>*  
-*© 2026 Kris Raney, ZipCode Wilmington - Released under MIT License*
+*© 2026 Kristofer Younger, ZipCode Wilmington - Released under MIT License*
 
 ---
 
