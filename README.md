@@ -12,6 +12,11 @@ make flash                 # auto-detects /dev/cu.usbmodem*
 make run                   # flash + open monitor in one step
 ```
 
+**Canal** is a microkernel operating system for the ESP32-S3, written in Go and built on top of FreeRTOS. It is designed to be a platform for learning about
+operating system concepts, embedded programming, and the Go programming language. Canal is a work in progress, and is currently in the early stages of development. The project is open source and welcomes contributions from the community.
+
+**Picoceci** is a companion programming language for Canal, designed to be simple and easy to learn. It is a small, statically typed language that compiles to Go, and is intended to be used for programming the Canal microkernel and applications running on it. See the [picoceci repository](https://github.com/kristofer/picoceci) for more information.
+
 ## 📚 Educational Materials
 
 A planned series of articles covering Canal and its companion language
@@ -28,4 +33,3 @@ A planned series of articles covering Canal and its companion language
 See **[docs/EDUCATIONAL_PLAN.md](docs/EDUCATIONAL_PLAN.md)** for the full plan,
 including learning objectives, key topics, target audience, and production notes for
 each article.
-
