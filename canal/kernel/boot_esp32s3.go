@@ -19,6 +19,7 @@ func app_main() {
 	machine.InitSerial()
 	// Wait for USB CDC to settle so all boot messages are visible on the monitor.
 	vTaskDelay(2000)
+	initUSBSerialJTAGConsole()
 	println("\n=== Canal ESP32-S3 ===")
 	println("Boot time:", millis(), "ms")
 
@@ -43,9 +44,14 @@ func app_main() {
 	println("=== Boot Complete ===")
 	println("Free heap:", xPortGetFreeHeapSize()/1024, "KB")
 
+	statsCounter := uint8(0)
 	for {
 		vTaskDelay(1000)
-		printStats()
+		statsCounter++
+		if statsCounter >= 5 {
+			statsCounter = 0
+			printStats()
+		}
 	}
 }
 
@@ -208,17 +214,7 @@ func printStats() {
 	println("Free heap:", xPortGetFreeHeapSize()/1024, "KB")
 	for i := DomainID(1); i < maxDomains; i++ {
 		if domainTable[i].State != DomainStateInvalid {
-			name := string(trimNull(domainTable[i].Name[:]))
-			println("  domain", i, name, "caps:", domainTable[i].CapCount)
+			println("  domain", i, "caps:", domainTable[i].CapCount)
 		}
 	}
-}
-
-func trimNull(b []byte) []byte {
-	for i, c := range b {
-		if c == 0 {
-			return b[:i]
-		}
-	}
-	return b
 }

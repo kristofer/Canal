@@ -69,7 +69,7 @@ TLS_RAM_ORIGIN     = $(call nm_addr,domain_ram_tls)
 # files, which appear before --just-symbols in the link order) is the correct
 # resolution.  FreeRTOS/IDF-only symbols (vTaskDelay, xQueueSend, …) are not
 # defined in domain code, so they still resolve to the kernel's live addresses.
-DOMAIN_LDFLAGS     = $(if $(wildcard $(KERNEL_ELF)),-ldflags="-extldflags=--just-symbols=$(KERNEL_ELF) -extldflags=--allow-multiple-definition")
+DOMAIN_LDFLAGS     = $(if $(wildcard $(KERNEL_ELF)),-ldflags="-extldflags='--just-symbols=$(KERNEL_ELF) --allow-multiple-definition'")
 
 # Domains are linked into fixed flash windows derived from their partition offsets.
 # This is required because TinyGo/xtensa output is not position-independent; the

@@ -9,6 +9,11 @@ type TaskHandle_t unsafe.Pointer
 type QueueHandle_t unsafe.Pointer
 type BaseType_t int32
 
+type usbSerialJtagDriverConfig struct {
+	txBufferSize uint32
+	rxBufferSize uint32
+}
+
 const (
 	pdTRUE               BaseType_t = 1
 	pdFALSE              BaseType_t = 0
@@ -104,6 +109,31 @@ func xQueueReceive(xQueue QueueHandle_t, pvBuffer unsafe.Pointer, xTicksToWait u
 
 //export xPortGetFreeHeapSize
 func xPortGetFreeHeapSize() uint32
+
+// USB Serial/JTAG driver + VFS hooks from ESP-IDF.
+//export usb_serial_jtag_is_driver_installed
+func usbSerialJtagIsDriverInstalled() bool
+
+//export usb_serial_jtag_driver_install
+func usbSerialJtagDriverInstall(config *usbSerialJtagDriverConfig) int32
+
+//export usb_serial_jtag_vfs_use_driver
+func usbSerialJtagVFSUseDriver()
+
+func initUSBSerialJTAGConsole() {
+	if usbSerialJtagIsDriverInstalled() {
+		usbSerialJtagVFSUseDriver()
+		return
+	}
+
+	cfg := usbSerialJtagDriverConfig{
+		txBufferSize: 256,
+		rxBufferSize: 256,
+	}
+	if usbSerialJtagDriverInstall(&cfg) == 0 {
+		usbSerialJtagVFSUseDriver()
+	}
+}
 
 var cstringPool [8][17]byte
 var cstringNext uint8

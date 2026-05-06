@@ -3,16 +3,18 @@
 package main
 
 import (
-	"machine"
 	"strings"
+	"unsafe"
 )
 
 // console provides line-based I/O for the REPL.
-// Uses machine.Serial which is USB CDC on ESP32-S3.
+// Uses read/write over IDF VFS stdin/stdout.
 //
-// NOTE: Echo is handled by the terminal (miniterm with local echo) or
-// Canal's serial layer. This console does NOT echo to avoid double characters.
-type console struct{}
+// NOTE: Echo is handled here intentionally so tinygo monitor users see typed
+// characters immediately.
+type console struct {
+	skipNextLF bool
+}
 
 func newConsole() *console {
 	return &console{}
@@ -24,32 +26,27 @@ func (c *console) ReadLine() (string, error) {
 	var sb strings.Builder
 
 	for {
-		// Wait for input — yield to FreeRTOS scheduler each polling tick.
-		for machine.Serial.Buffered() == 0 {
-			vTaskDelay(1) // 1 ms tick; yields CPU rather than spinning
-		}
-
-		b, err := machine.Serial.ReadByte()
+		b, err := readConsoleByte()
 		if err != nil {
 			return sb.String(), err
 		}
 
+		// Terminals commonly send CRLF. If the previous line ended on CR,
+		// swallow the following LF so we don't emit a duplicate empty command.
+		if c.skipNextLF && b == '\n' {
+			c.skipNextLF = false
+			continue
+		}
+		c.skipNextLF = false
+
 		// Handle newline
 		if b == '\n' || b == '\r' {
-			// Echo newline
-			machine.Serial.WriteByte('\r')
-			machine.Serial.WriteByte('\n')
-			// If we got \r, consume any following \n (handles \r\n sequence)
 			if b == '\r' {
-				vTaskDelay(1) // Brief wait for \n to arrive
-				if machine.Serial.Buffered() > 0 {
-					next, _ := machine.Serial.ReadByte()
-					if next != '\n' {
-						// Not a \n; we can't un-read it, so it is silently
-						// dropped. Standalone \r without \n is rare in practice.
-					}
-				}
+				c.skipNextLF = true
 			}
+			// Echo newline
+			writeConsoleByte('\r')
+			writeConsoleByte('\n')
 			break
 		}
 
@@ -60,9 +57,9 @@ func (c *console) ReadLine() (string, error) {
 				sb.Reset()
 				sb.WriteString(s[:len(s)-1])
 				// Erase: move back, overwrite with space, move back
-				machine.Serial.WriteByte(8)
-				machine.Serial.WriteByte(' ')
-				machine.Serial.WriteByte(8)
+				writeConsoleByte(8)
+				writeConsoleByte(' ')
+				writeConsoleByte(8)
 			}
 			// Don't echo the backspace character itself
 			continue
@@ -70,10 +67,10 @@ func (c *console) ReadLine() (string, error) {
 
 		// Handle Ctrl-C (interrupt)
 		if b == 3 {
-			machine.Serial.WriteByte('^')
-			machine.Serial.WriteByte('C')
-			machine.Serial.WriteByte('\r')
-			machine.Serial.WriteByte('\n')
+			writeConsoleByte('^')
+			writeConsoleByte('C')
+			writeConsoleByte('\r')
+			writeConsoleByte('\n')
 			sb.Reset()
 			return "", nil
 		}
@@ -84,7 +81,7 @@ func (c *console) ReadLine() (string, error) {
 		}
 
 		// Echo printable characters
-		machine.Serial.WriteByte(b)
+		writeConsoleByte(b)
 		sb.WriteByte(b)
 	}
 
@@ -94,7 +91,7 @@ func (c *console) ReadLine() (string, error) {
 // Write outputs bytes to the console.
 func (c *console) Write(data []byte) (int, error) {
 	for _, b := range data {
-		machine.Serial.WriteByte(b)
+		writeConsoleByte(b)
 	}
 	return len(data), nil
 }
@@ -112,3 +109,31 @@ func (c *console) Println(s string) {
 type eofError struct{}
 
 func (eofError) Error() string { return "EOF" }
+
+func readConsoleByte() (byte, error) {
+	var b [1]byte
+	for {
+		n := usbSerialJtagReadBytes(unsafe.Pointer(&b[0]), 1, 1)
+		if n == 1 {
+			return b[0], nil
+		}
+		// Keep polling cooperatively while no character is available.
+		vTaskDelay(1)
+	}
+}
+
+func writeConsoleByte(b byte) {
+	bb := [1]byte{b}
+	for {
+		n := usbSerialJtagWriteBytes(unsafe.Pointer(&bb[0]), 1, 1)
+		if n == 1 {
+			_ = usbSerialJtagWaitTxDone(1)
+			return
+		}
+		vTaskDelay(1)
+	}
+}
+
+type ioError struct{}
+
+func (ioError) Error() string { return "console I/O error" }

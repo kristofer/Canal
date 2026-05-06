@@ -27,6 +27,11 @@ const version = "0.1.0-dev"
 //
 //export domain_entry
 func domain_entry(param unsafe.Pointer) {
+	// Initialize TinyGo leaking GC heap before any allocation.
+	// The normal TinyGo startup path is bypassed when running as a FreeRTOS task.
+	initDomainHeap()
+	initDomainConsole()
+
 	var domainID uint16
 	if param != nil {
 		domainID = *(*uint16)(param)
@@ -56,6 +61,11 @@ func runPicoceci() {
 
 	// Start REPL
 	runREPL(loader)
+
+	// Domain tasks must never return to FreeRTOS.
+	for {
+		vTaskDelay(portMAX_DELAY)
+	}
 }
 
 // runREPL runs the interactive REPL using Canal's console I/O.
@@ -68,8 +78,8 @@ func runREPL(loader *module.Loader) {
 
 		line, err := console.ReadLine()
 		if err != nil {
-			println("\n[picoceci] Goodbye!")
-			break
+			vTaskDelay(10)
+			continue
 		}
 		if line == "" {
 			continue
