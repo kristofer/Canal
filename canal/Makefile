@@ -55,8 +55,12 @@ TLS_RAM_ORIGIN     = $(call nm_addr,domain_ram_tls)
 # declarations to any domain package will resolve automatically without any
 # extra Makefile changes.
 #
+# --just-symbols is an external linker (lld) flag; it must be passed via
+# TinyGo's -extldflags so TinyGo forwards it to lld rather than trying to
+# interpret it as a TinyGo link flag (which would produce "flag not defined").
+#
 # Expands to nothing when the kernel ELF has not been built yet.
-DOMAIN_LDFLAGS     = $(if $(wildcard $(KERNEL_ELF)),-ldflags="--just-symbols=$(KERNEL_ELF)")
+DOMAIN_LDFLAGS     = $(if $(wildcard $(KERNEL_ELF)),-ldflags="-extldflags=--just-symbols=$(KERNEL_ELF)")
 
 # Domains are linked into fixed flash windows derived from their partition offsets.
 # This is required because TinyGo/xtensa output is not position-independent; the
