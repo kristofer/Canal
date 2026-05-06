@@ -111,6 +111,7 @@ func xQueueReceive(xQueue QueueHandle_t, pvBuffer unsafe.Pointer, xTicksToWait u
 func xPortGetFreeHeapSize() uint32
 
 // USB Serial/JTAG driver + VFS hooks from ESP-IDF.
+//
 //export usb_serial_jtag_is_driver_installed
 func usbSerialJtagIsDriverInstalled() bool
 

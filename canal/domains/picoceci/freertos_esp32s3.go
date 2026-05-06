@@ -25,7 +25,6 @@ func usbSerialJtagWriteBytes(src unsafe.Pointer, size uint32, ticksToWait uint32
 //export usb_serial_jtag_wait_tx_done
 func usbSerialJtagWaitTxDone(ticksToWait uint32) int32
 
-
 // portMAX_DELAY parks a FreeRTOS task indefinitely (lowest overhead).
 const portMAX_DELAY uint32 = 0xFFFFFFFF
 
