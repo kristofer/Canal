@@ -5,7 +5,6 @@ package main
 import (
 	"machine"
 	"strings"
-	"time"
 )
 
 // console provides line-based I/O for the REPL.
@@ -25,9 +24,9 @@ func (c *console) ReadLine() (string, error) {
 	var sb strings.Builder
 
 	for {
-		// Wait for input with a small yield to prevent tight spinning
+		// Wait for input — yield to FreeRTOS scheduler each polling tick.
 		for machine.Serial.Buffered() == 0 {
-			time.Sleep(time.Millisecond)
+			vTaskDelay(1) // 1 ms tick; yields CPU rather than spinning
 		}
 
 		b, err := machine.Serial.ReadByte()
@@ -42,13 +41,12 @@ func (c *console) ReadLine() (string, error) {
 			machine.Serial.WriteByte('\n')
 			// If we got \r, consume any following \n (handles \r\n sequence)
 			if b == '\r' {
-				time.Sleep(time.Millisecond) // Brief wait for \n to arrive
+				vTaskDelay(1) // Brief wait for \n to arrive
 				if machine.Serial.Buffered() > 0 {
 					next, _ := machine.Serial.ReadByte()
 					if next != '\n' {
-						// Not a \n, put it back by processing it next iteration
-						// Actually we can't put it back, so just ignore non-\n
-						// This is fine since \r alone is rare
+						// Not a \n; we can't un-read it, so it is silently
+						// dropped. Standalone \r without \n is rare in practice.
 					}
 				}
 			}

@@ -4,14 +4,16 @@
 package main
 
 import (
-	"time"
 	"unsafe"
 )
+
+var domainMode bool
 
 // domain_entry is called by the kernel's ELF loader via xTaskCreate.
 //
 //export domain_entry
 func domain_entry(param unsafe.Pointer) {
+	domainMode = true
 	var domainID uint16
 	if param != nil {
 		domainID = *(*uint16)(param)
@@ -34,6 +36,8 @@ func runLogger() {
 		if ticker%10 == 0 {
 			println("[Logger] alive, tick:", ticker)
 		}
-		time.Sleep(10 * time.Second)
+		// vTaskDelay yields to the FreeRTOS scheduler — safe in domain mode.
+		// 10 000 ticks = 10 s with the default 1 ms/tick config.
+		vTaskDelay(10000)
 	}
 }
