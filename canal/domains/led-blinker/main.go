@@ -39,9 +39,12 @@ func runLED() {
 	println("[LED] Cycling colors")
 
 	colors := [][3]uint8{
-		{255, 0, 0},
-		{0, 255, 0},
 		{0, 0, 255},
+		{255, 255, 255},
+		{0, 0, 255},
+		{255, 255, 255},
+		{0, 0, 255},
+		{255, 255, 255},
 		{255, 80, 0},
 		{80, 0, 255},
 		{0, 0, 0},
@@ -51,7 +54,10 @@ func runLED() {
 		c := colors[i%len(colors)]
 		ws2812Write(c[0], c[1], c[2])
 		i++
-		time.Sleep(600 * time.Millisecond)
+		if i%8 == 0 {
+			println("[LED] alive, step:", i)
+		}
+		time.Sleep(750 * time.Millisecond)
 	}
 }
 

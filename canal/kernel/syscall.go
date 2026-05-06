@@ -13,8 +13,13 @@ var syscallTaskHandle TaskHandle_t
 func InitSyscall() {
 	kernelSyscallQ = xQueueCreate(32, uint32(unsafe.Sizeof(SyscallRequest{})))
 	fn := syscallHandlerTrampoline
+	words := *(*[2]uintptr)(unsafe.Pointer(&fn))
+	entryWord := words[0]
+	if entryWord == 0 {
+		entryWord = words[1]
+	}
 	result := xTaskCreate(
-		*(*unsafe.Pointer)(unsafe.Pointer(&fn)),
+		unsafe.Pointer(entryWord),
 		cstring("syscall"),
 		4096,
 		nil,
@@ -28,7 +33,7 @@ func InitSyscall() {
 
 // syscallHandlerTrampoline is the FreeRTOS task entry that wraps SyscallHandler.
 // It must not carry the //export pragma: TinyGo forbids using exported functions
-// as values, and InitSyscall() takes its address to pass to xTaskCreate.
+// as values; InitSyscall() extracts its code pointer from a func value.
 func syscallHandlerTrampoline(params unsafe.Pointer) { SyscallHandler(params) }
 
 // Syscall handler task

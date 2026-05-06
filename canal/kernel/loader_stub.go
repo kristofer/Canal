@@ -13,3 +13,7 @@ import "errors"
 func LoadDomain(partitionOffset uint32) (entryPoint uint32, err error) {
 	return 0, errors.New("loader: IDF required for flash loading")
 }
+
+func LoadDomainMapped(partitionOffset uint32, partitionSize uint32, domainName string) (entryPoint uint32, mmapHandle uint32, err error) {
+	return 0, 0, errors.New("loader: IDF required for flash loading")
+}

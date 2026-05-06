@@ -15,10 +15,44 @@ TINYGO        ?= tinygo
 TINYGO_TARGET ?= esp32s3-generic
 USE_IDF       ?= 1          # link against ESP-IDF FreeRTOS (required for flash domain loading)
 BAUD          ?= 115200
+DOMAIN_STACK  ?= led wifi logger picoceci tls
 
 KERNEL_DIR  := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))kernel
 DOMAINS_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))domains
 OUT_DIR     := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))build/out
+BUILD_DIR   := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))build
+DOMAIN_LINKER := $(BUILD_DIR)/targets/esp32s3/domain-linker.ld
+
+# Domain RAM windows are static arrays declared in bridge_main.c.
+# Their addresses are read from the kernel ELF after build with nm.
+# DOMAIN_RAM_SIZE must match DOMAIN_RAM_SLOT_SIZE in bridge_main.c.
+DOMAIN_RAM_SIZE ?= 0x4000
+NM ?= $(firstword $(wildcard /Users/kristofer/.espressif/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32s3-elf-nm) xtensa-esp32s3-elf-nm)
+KERNEL_ELF := $(BUILD_DIR)/idf-app/build/canal_idf_bridge.elf
+TINYGO_ROOT ?= $(shell tinygo env TINYGOROOT 2>/dev/null)
+
+# Extract a symbol address from the kernel ELF. Usage: $(call nm_addr,SYMBOL)
+define nm_addr
+$(shell $(NM) $(KERNEL_ELF) 2>/dev/null | awk '/$(1)$$/{print "0x"$$1; exit}')
+endef
+
+LED_RAM_ORIGIN     = $(call nm_addr,domain_ram_led)
+WIFI_RAM_ORIGIN    = $(call nm_addr,domain_ram_wifi)
+LOGGER_RAM_ORIGIN  = $(call nm_addr,domain_ram_logger)
+PICOCECI_RAM_ORIGIN= $(call nm_addr,domain_ram_picoceci)
+TLS_RAM_ORIGIN     = $(call nm_addr,domain_ram_tls)
+
+# Generate a per-domain linker script + target JSON, then call tinygo build.
+# $(1)=domain name, $(2)=DRAM origin hex, $(3)=DRAM length hex
+define build_domain_elf
+	$(eval _ld := $(OUT_DIR)/$(1)-domain.ld)
+	$(eval _json := $(OUT_DIR)/$(1)-target.json)
+	@mkdir -p $(OUT_DIR)
+	sed -e 's/DRAM (rw) : ORIGIN = 0x3FC88000, LENGTH = 416K/DRAM (rw) : ORIGIN = $(2), LENGTH = $(3)/' \
+		-e 's/ENTRY(call_start_cpu0)/ENTRY(domain_entry)/' \
+		$(TINYGO_ROOT)/targets/esp32s3.ld > $(_ld)
+	printf '{"inherits":["esp32s3-generic"],"linkerscript":"%s"}\n' "$(_ld)" > $(_json)
+endef
 
 # Auto-detect the first connected ESP32 USB-serial port.
 # Override with: make flash PORT=/dev/cu.usbmodem1301
@@ -29,7 +63,7 @@ _DETECTED_PORT := $(firstword $(wildcard /dev/ttyUSB* /dev/ttyACM*))
 endif
 PORT ?= $(_DETECTED_PORT)
 
-ifeq ($(USE_IDF),1)
+ifeq ($(strip $(USE_IDF)),1)
 EXTRA_TAGS := -tags=idf
 else
 EXTRA_TAGS :=
@@ -51,29 +85,34 @@ _check_port:
 
 # ── primary targets ───────────────────────────────────────────────────────────
 
-.PHONY: all build build-domains led wifi logger \
-        flash flash-domains flash-all flash-led flash-wifi flash-logger \
-        monitor run clean help
+.PHONY: all build build-domains led wifi logger tls \
+        flash flash-domains flash-all flash-led flash-wifi flash-logger flash-tls flash-picoceci \
+	flash-core-domains monitor run clean help
 
 all: build
 
 build: _check_tinygo
-	@echo "Building Canal kernel (target=$(TINYGO_TARGET))..."
-	cd $(KERNEL_DIR) && $(TINYGO) build \
-		-target=$(TINYGO_TARGET) \
-		-opt=2 \
-		$(EXTRA_TAGS) \
-		-o ../build/out/kernel.elf \
-		./cmd/esp32s3
+	@if [ "$(strip $(USE_IDF))" = "1" ]; then \
+		echo "Building Canal kernel via ESP-IDF bridge..."; \
+		$(MAKE) --no-print-directory -C $(BUILD_DIR) USE_IDF_FREERTOS=1 kernel; \
+	else \
+		echo "Building Canal kernel (target=$(TINYGO_TARGET))..."; \
+		cd $(KERNEL_DIR) && $(TINYGO) build \
+			-target=$(TINYGO_TARGET) \
+			-opt=2 \
+			$(EXTRA_TAGS) \
+			-o ../build/out/kernel.elf \
+			./cmd/esp32s3; \
+	fi
 	@echo "Built: build/out/kernel.elf"
 
-build-domains: led wifi logger
+build-domains: $(DOMAIN_STACK)
 
 led: _check_tinygo
 	@echo "Building LED domain..."
-	@mkdir -p $(OUT_DIR)
+	$(call build_domain_elf,led,$(LED_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
 	cd $(DOMAINS_DIR)/led-blinker && $(TINYGO) build \
-		-target=$(TINYGO_TARGET) \
+		-target=$(OUT_DIR)/led-target.json \
 		-opt=2 \
 		$(EXTRA_TAGS) \
 		-o $(OUT_DIR)/led.elf \
@@ -82,9 +121,9 @@ led: _check_tinygo
 
 wifi: _check_tinygo
 	@echo "Building WiFi domain..."
-	@mkdir -p $(OUT_DIR)
+	$(call build_domain_elf,wifi,$(WIFI_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
 	cd $(DOMAINS_DIR)/wifi && $(TINYGO) build \
-		-target=$(TINYGO_TARGET) \
+		-target=$(OUT_DIR)/wifi-target.json \
 		-opt=2 \
 		$(EXTRA_TAGS) \
 		-o $(OUT_DIR)/wifi.elf \
@@ -93,30 +132,45 @@ wifi: _check_tinygo
 
 logger: _check_tinygo
 	@echo "Building Logger domain..."
-	@mkdir -p $(OUT_DIR)
+	$(call build_domain_elf,logger,$(LOGGER_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
 	cd $(DOMAINS_DIR)/logger && $(TINYGO) build \
-		-target=$(TINYGO_TARGET) \
+		-target=$(OUT_DIR)/logger-target.json \
 		-opt=2 \
 		$(EXTRA_TAGS) \
 		-o $(OUT_DIR)/logger.elf \
 		.
 	@echo "Built: build/out/logger.elf"
 
-flash: _check_tinygo _check_port
-	@echo "Flashing to $(PORT)..."
-	cd $(KERNEL_DIR) && $(TINYGO) flash \
-		-target=$(TINYGO_TARGET) \
+tls: _check_tinygo
+	@echo "Building TLS domain..."
+	$(call build_domain_elf,tls,$(TLS_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
+	cd $(DOMAINS_DIR)/tls && $(TINYGO) build \
+		-target=$(OUT_DIR)/tls-target.json \
 		-opt=2 \
 		$(EXTRA_TAGS) \
-		-port=$(PORT) \
-		./cmd/esp32s3
+		-o $(OUT_DIR)/tls.elf \
+		.
+	@echo "Built: build/out/tls.elf"
 
-flash-domains: _check_port led wifi logger
-	@echo "Flashing all domain binaries to $(PORT)..."
-	esptool.py --chip esp32s3 --port $(PORT) --baud 921600 write_flash \
-		0x100000 $(OUT_DIR)/led.elf \
-		0x180000 $(OUT_DIR)/wifi.elf \
-		0x200000 $(OUT_DIR)/logger.elf
+flash: _check_tinygo _check_port
+	@if [ "$(strip $(USE_IDF))" = "1" ]; then \
+		echo "Flashing kernel via ESP-IDF bridge to $(PORT)..."; \
+		$(MAKE) --no-print-directory -C $(BUILD_DIR) USE_IDF_FREERTOS=1 flash PORT=$(PORT); \
+	else \
+		echo "Flashing to $(PORT)..."; \
+		cd $(KERNEL_DIR) && $(TINYGO) flash \
+			-target=$(TINYGO_TARGET) \
+			-opt=2 \
+			$(EXTRA_TAGS) \
+			-port=$(PORT) \
+			./cmd/esp32s3; \
+	fi
+
+flash-domains: _check_tinygo _check_port
+	@echo "Building and flashing domains ($(DOMAIN_STACK)) to $(PORT)..."
+	@for domain in $(DOMAIN_STACK); do \
+		$(MAKE) --no-print-directory flash-$$domain PORT=$(PORT) || exit $$?; \
+	done
 	@echo "Domains flashed"
 
 # Flash kernel + domains in sequence.
@@ -146,9 +200,24 @@ flash-logger: _check_port logger
 		0x200000 $(OUT_DIR)/logger.elf
 	@echo "Logger domain flashed"
 
+flash-tls: _check_port tls
+	@echo "Flashing TLS domain to $(PORT) at $(TLS_ADDR)..."
+	esptool.py --chip esp32s3 --port $(PORT) --baud 921600 write_flash \
+		$(TLS_ADDR) $(OUT_DIR)/tls.elf
+	@echo "TLS domain flashed"
+
+# Build and flash the main demo domains in sequence.
+flash-core-domains: _check_tinygo _check_port
+	@$(MAKE) --no-print-directory flash-domains PORT=$(PORT) DOMAIN_STACK="$(DOMAIN_STACK)"
+
 monitor: _check_port
-	@echo "Monitoring $(PORT) at $(BAUD) baud  (Ctrl-] to quit)"
-	python3 -m serial.tools.miniterm --dtr 0 --rts 0 $(PORT) $(BAUD)
+	@if [ "$(strip $(USE_IDF))" = "1" ]; then \
+		echo "Monitoring via ESP-IDF bridge on $(PORT)..."; \
+		$(MAKE) --no-print-directory -C $(BUILD_DIR) USE_IDF_FREERTOS=1 monitor PORT=$(PORT); \
+	else \
+		echo "Monitoring $(PORT) at $(BAUD) baud  (Ctrl-] to quit)"; \
+		python3 -m serial.tools.miniterm --dtr 0 --rts 0 $(PORT) $(BAUD); \
+	fi
 
 # Flash kernel + domains, then immediately monitor.
 # NOTE: tinygo flash (used by the 'flash' target) erases the entire chip, so
@@ -169,27 +238,29 @@ clean:
 # ── picoceci domain ──────────────────────────────────────────────────────────
 
 PICOCECI_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))domains/picoceci
+PICOCECI_ADDR ?= 0x280000
+TLS_ADDR ?= 0x380000
 
 .PHONY: picoceci picoceci-flash picoceci-run
 
 picoceci: _check_tinygo
 	@echo "Building picoceci domain (target=$(TINYGO_TARGET))..."
+	$(call build_domain_elf,picoceci,$(PICOCECI_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
 	$(TINYGO) build \
-		-target=$(TINYGO_TARGET) \
+		-target=$(OUT_DIR)/picoceci-target.json \
 		-opt=2 \
 		-gc=leaking \
 		-o build/out/picoceci.elf \
 		$(PICOCECI_DIR)
 	@echo "Built: build/out/picoceci.elf"
 
-picoceci-flash: _check_tinygo _check_port
-	@echo "Flashing picoceci to $(PORT)..."
-	$(TINYGO) flash \
-		-target=$(TINYGO_TARGET) \
-		-opt=2 \
-		-gc=leaking \
-		-port=$(PORT) \
-		$(PICOCECI_DIR)
+picoceci-flash: _check_port picoceci
+	@echo "Flashing picoceci domain to $(PORT) at $(PICOCECI_ADDR)..."
+	esptool.py --chip esp32s3 --port $(PORT) --baud 921600 write_flash \
+		$(PICOCECI_ADDR) $(OUT_DIR)/picoceci.elf
+	@echo "picoceci domain flashed"
+
+flash-picoceci: picoceci-flash
 
 picoceci-run: _check_tinygo _check_port
 	@$(MAKE) --no-print-directory picoceci-flash PORT=$(PORT)
@@ -205,15 +276,18 @@ help:
 	@echo ""
 	@echo "Kernel targets:"
 	@echo "  make build            compile kernel only"
-	@echo "  make build-domains    compile all domain binaries (led, wifi, logger)"
-	@echo "  make led/wifi/logger  compile a single domain"
+	@echo "  make build-domains    compile all domains listed in DOMAIN_STACK"
+	@echo "  make led/wifi/logger/tls compile a single domain"
 	@echo ""
 	@echo "  make flash            compile + flash kernel (auto-detects port)"
-	@echo "  make flash-domains    flash all domains to their partitions"
+	@echo "  make flash-domains    build + flash domain stack in DOMAIN_STACK"
 	@echo "  make flash-all        flash kernel then all domains"
 	@echo "  make flash-led        rebuild + flash LED domain only"
 	@echo "  make flash-wifi       rebuild + flash WiFi domain only"
 	@echo "  make flash-logger     rebuild + flash Logger domain only"
+	@echo "  make flash-tls        rebuild + flash TLS domain only"
+	@echo "  make flash-picoceci   rebuild + flash picoceci domain only"
+	@echo "  make flash-core-domains alias for flash-domains"
 	@echo ""
 	@echo "  make monitor          open serial monitor"
 	@echo "  make run              flash kernel + domains + monitor (full workflow)"
@@ -232,4 +306,7 @@ help:
 	@echo "  USE_IDF=$(USE_IDF)   (default 1: link real FreeRTOS via ESP-IDF for flash domain loading)"
 	@echo "                      (set to 0 to disable IDF — goroutine fallbacks only, no flash loading)"
 	@echo "  BAUD=$(BAUD)"
+	@echo "  PICOCECI_ADDR=$(PICOCECI_ADDR)"
+	@echo "  TLS_ADDR=$(TLS_ADDR)"
+	@echo "  DOMAIN_STACK=$(DOMAIN_STACK)"
 	@echo ""

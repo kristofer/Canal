@@ -1,5 +1,5 @@
 idf_component_register(SRCS "bridge_main.c"
-                    INCLUDE_DIRS ".")
+    INCLUDE_DIRS ".")
 
 set(CANAL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../..")
 set(CANAL_KERNEL_DIR "${CANAL_ROOT}/kernel")
@@ -39,11 +39,14 @@ set(TINYGO_REDEFINE_ARGS
     --redefine-sym __sync_lock_test_and_set_8=tinygo___sync_lock_test_and_set_8
 )
 
+file(GLOB_RECURSE CANAL_GO_SOURCES "${CANAL_KERNEL_DIR}/*.go")
+
 add_custom_command(
     OUTPUT ${CANAL_OBJ}
     COMMAND tinygo build -target=esp32s3-generic -tags=idf -opt=2 -scheduler=none -gc=leaking -o ${CANAL_OBJ_RAW} ./cmd/esp32s3
     COMMAND ${CMAKE_OBJCOPY} ${TINYGO_REDEFINE_ARGS} ${CANAL_OBJ_RAW} ${CANAL_OBJ}
     WORKING_DIRECTORY ${CANAL_KERNEL_DIR}
+    DEPENDS ${CANAL_GO_SOURCES}
     COMMENT "Building TinyGo kernel object for IDF link"
     VERBATIM
 )

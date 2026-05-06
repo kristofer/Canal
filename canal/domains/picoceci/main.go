@@ -8,11 +8,12 @@
 //   - Full access to 8MB PSRAM for heap allocations
 //
 // Build as part of Canal:
-//   make flash
+//
+//	make flash
 package main
 
 import (
-	"time"
+	"unsafe"
 
 	"github.com/kristofer/picoceci/pkg/bytecode"
 	"github.com/kristofer/picoceci/pkg/lexer"
@@ -22,10 +23,19 @@ import (
 
 const version = "0.1.0-dev"
 
-func main() {
-	// Wait for USB CDC / UART to stabilize
-	time.Sleep(2 * time.Second)
+// domain_entry is called by the kernel's ELF loader via xTaskCreate.
+//
+//export domain_entry
+func domain_entry(domainID uint16, syscallQ, replyQ unsafe.Pointer) {
+	println("[picoceci] Domain", domainID, "starting from flash")
+	runPicoceci()
+}
 
+func main() {
+	runPicoceci()
+}
+
+func runPicoceci() {
 	println("[picoceci] Starting v" + version + " (Canal domain)")
 
 	// Set up module resolver

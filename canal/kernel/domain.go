@@ -2,6 +2,9 @@
 
 package kernel
 
+// spawnGoEntry is provided by domain_goroutine.go (non-IDF) or domain_task.go (IDF).
+// It launches the fallback entry function for a domain when ELF loading is not available.
+
 import (
 	"unsafe"
 )
@@ -26,7 +29,6 @@ func InitDomainTable() {
 		domainTable[i].State = DomainStateInvalid
 	}
 }
-
 
 // DomainSpawn registers a domain and launches its entry function as a goroutine.
 // heapSize reserves real memory from the Go GC heap; use the HeapTiny/Small/Medium
@@ -68,21 +70,37 @@ func DomainSpawn(name string, heapSize uint32, entry func(), priority uint8) (Do
 	spinUnlock(&domainTableLock)
 
 	if entry != nil {
-		go entry()
+		spawnGoEntry(entry, name, priority)
 	}
 
 	return domainID, ErrNone
 }
 
-// domainPartitions maps domain names to their flash partition offsets.
+// partitionOffset returns the flash partition offset for a domain.
 // Must match build/targets/esp32s3/partitions.csv.
-// Each partition is 512KB (0x80000) to fit full TinyGo runtime binaries.
-var domainPartitions = map[string]uint32{
-	"led":    0x100000,
-	"wifi":   0x180000,
-	"logger": 0x200000,
-	"tls":    0x280000,
-	"sdcard": 0x300000,
+func partitionOffset(name string) (uint32, bool) {
+	switch name {
+	case "led":
+		return 0x100000, true
+	case "wifi":
+		return 0x180000, true
+	case "logger":
+		return 0x200000, true
+	case "picoceci":
+		return 0x280000, true
+	case "sdcard":
+		return 0x300000, true
+	case "tls":
+		return 0x380000, true
+	default:
+		return 0, false
+	}
+}
+
+// partitionSize returns the flash partition size for a domain.
+// Must match build/targets/esp32s3/partitions.csv.
+func partitionSize(name string) uint32 {
+	return 0x80000 // all domain partitions are 512KB
 }
 
 // DomainParams is passed as pvParameters to the FreeRTOS task created for a
@@ -97,13 +115,14 @@ type DomainParams struct {
 // PT_LOAD segments into RAM, and creates a FreeRTOS task at the ELF entry
 // point. The entry point is expected to be domain_entry (see domain-linker.ld).
 func SpawnDomainFromFlash(name string, priority uint8) (DomainID, uint8) {
-	partOffset, ok := domainPartitions[name]
+	partOffset, ok := partitionOffset(name)
 	if !ok {
 		println("[Loader] unknown domain:", name)
 		return 0, ErrInvalidDomain
 	}
 
-	entryPoint, err := LoadDomain(partOffset)
+	// Map domain code as executable and compute real entry point.
+	entryPoint, mmapHandle, err := LoadDomainMapped(partOffset, partitionSize(name), name)
 	if err != nil {
 		println("[Loader] load failed:", err.Error())
 		return 0, ErrInvalidDomain
@@ -133,6 +152,7 @@ func SpawnDomainFromFlash(name string, priority uint8) (DomainID, uint8) {
 	d.Priority = priority
 	d.SyscallQ = unsafe.Pointer(syscallQ)
 	d.ReplyQ = unsafe.Pointer(replyQ)
+	d.MmapHandle = mmapHandle
 	copy(d.Name[:], name)
 
 	spinUnlock(&domainTableLock)
@@ -144,6 +164,7 @@ func SpawnDomainFromFlash(name string, priority uint8) (DomainID, uint8) {
 	}
 
 	var taskHandle TaskHandle_t
+	println("[Kernel] Starting domain task", name, "entry:", entryPoint, "prio:", priority)
 	result := xTaskCreate(
 		unsafe.Pointer(uintptr(entryPoint)),
 		cstring(name),
@@ -154,6 +175,7 @@ func SpawnDomainFromFlash(name string, priority uint8) (DomainID, uint8) {
 	)
 
 	if result != pdPASS {
+		println("[Kernel] xTaskCreate failed for", name, "entry:", entryPoint, "result:", uint32(result))
 		domainTable[domainID].State = DomainStateInvalid
 		return 0, ErrDomainTableFull
 	}

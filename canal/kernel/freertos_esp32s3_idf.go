@@ -16,7 +16,7 @@ const (
 	portMAX_DELAY        uint32     = 0xFFFFFFFF
 	tskIDLE_PRIORITY     uint32     = 0
 	configMAX_PRIORITIES uint32     = 5
-	tskNO_AFFINITY       int32      = -1
+	tskNO_AFFINITY       int32      = 0x7FFFFFFF // CONFIG_FREERTOS_NO_AFFINITY in ESP-IDF v5+
 )
 
 // These symbols are provided by ESP-IDF/FreeRTOS at link-time.
@@ -25,17 +25,17 @@ const (
 func xTaskCreatePinnedToCore(
 	pvTaskCode unsafe.Pointer,
 	pcName *byte,
-	usStackDepth uint16,
+	usStackDepth uint32,
 	pvParameters unsafe.Pointer,
 	uxPriority uint32,
-	xCoreID int32,
 	pvCreatedTask *TaskHandle_t,
+	xCoreID int32,
 ) BaseType_t
 
 func xTaskCreate(
 	pvTaskCode unsafe.Pointer,
 	pcName *byte,
-	usStackDepth uint16,
+	usStackDepth uint32,
 	pvParameters unsafe.Pointer,
 	uxPriority uint32,
 	pvCreatedTask *TaskHandle_t,
@@ -46,8 +46,8 @@ func xTaskCreate(
 		usStackDepth,
 		pvParameters,
 		uxPriority,
-		tskNO_AFFINITY,
 		pvCreatedTask,
+		tskNO_AFFINITY,
 	)
 }
 
@@ -76,8 +76,18 @@ func xQueueCreate(uxQueueLength uint32, uxItemSize uint32) QueueHandle_t {
 	return xQueueGenericCreate(uxQueueLength, uxItemSize, 0)
 }
 
-//export xQueueSend
-func xQueueSend(xQueue QueueHandle_t, pvItemToQueue unsafe.Pointer, xTicksToWait uint32) BaseType_t
+//export xQueueGenericSend
+func xQueueGenericSend(
+	xQueue QueueHandle_t,
+	pvItemToQueue unsafe.Pointer,
+	xTicksToWait uint32,
+	xCopyPosition BaseType_t,
+) BaseType_t
+
+func xQueueSend(xQueue QueueHandle_t, pvItemToQueue unsafe.Pointer, xTicksToWait uint32) BaseType_t {
+	// Match FreeRTOS xQueueSend macro (queueSEND_TO_BACK = 0).
+	return xQueueGenericSend(xQueue, pvItemToQueue, xTicksToWait, 0)
+}
 
 //export xQueueReceive
 func xQueueReceive(xQueue QueueHandle_t, pvBuffer unsafe.Pointer, xTicksToWait uint32) BaseType_t
@@ -85,6 +95,28 @@ func xQueueReceive(xQueue QueueHandle_t, pvBuffer unsafe.Pointer, xTicksToWait u
 //export xPortGetFreeHeapSize
 func xPortGetFreeHeapSize() uint32
 
+var cstringPool [8][17]byte
+var cstringNext uint8
+
 func cstring(s string) *byte {
-	return nil
+	if len(s) == 0 {
+		return nil
+	}
+
+	// Avoid heap allocation: TinyGo allocator can fault this early in boot.
+	slot := cstringNext % uint8(len(cstringPool))
+	cstringNext++
+
+	buf := &cstringPool[slot]
+	max := len(buf) - 1 // keep one byte for NUL terminator
+	n := len(s)
+	if n > max {
+		n = max
+	}
+	for i := 0; i < n; i++ {
+		buf[i] = s[i]
+	}
+	buf[n] = 0
+
+	return &buf[0]
 }

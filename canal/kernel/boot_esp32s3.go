@@ -17,6 +17,8 @@ func millis() uint32 {
 //export app_main
 func app_main() {
 	machine.InitSerial()
+	// Wait for USB CDC to settle so all boot messages are visible on the monitor.
+	vTaskDelay(2000)
 	println("\n=== Canal ESP32-S3 ===")
 	println("Boot time:", millis(), "ms")
 
@@ -49,38 +51,63 @@ func app_main() {
 
 // ── Domain boot ──────────────────────────────────────────────────────────────
 
+type domainDef struct {
+	name     string
+	heapSize uint32
+	fallback func()
+	priority uint8
+}
+
 // bootDomains tries to load each domain from its flash partition via the ELF
 // loader. If a partition doesn't contain a valid ELF (e.g. during development
 // before domains are flashed), it falls back to the in-kernel goroutine entry.
 func bootDomains() {
-	type domainDef struct {
-		name     string
-		heapSize uint32
-		fallback func()
-		priority uint8
-	}
+	// Keep this stack aligned with the default DOMAIN_STACK in the Makefile.
+	domainStack := []string{"led", "wifi", "logger", "picoceci", "tls"}
 
-	domains := []domainDef{
-		{"led", HeapTiny, ledDomainEntry, 2},
-		{"wifi", HeapMedium, wifiDomainEntry, 2},
-		{"logger", HeapSmall, nil, 2},
-	}
+	for _, name := range domainStack {
+		def, ok := getDomainBootDef(name)
+		if !ok {
+			println("  [skip]", name, "(missing boot config)")
+			continue
+		}
 
-	for _, def := range domains {
+		println("  [boot]", def.name, "attempting flash load")
+
 		id, errno := SpawnDomainFromFlash(def.name, def.priority)
 		if errno == ErrNone {
 			println("  [flash]", def.name, "id:", id)
 			continue
 		}
-		// Flash partition missing or invalid ELF — fall back to goroutine.
-		if def.fallback != nil {
+		println("  [flash-fail]", def.name, "errno:", errno)
+		// Flash partition missing or invalid ELF — optional in-kernel fallback.
+		if def.fallback != nil && allowInKernelFallback() {
 			id, errno = DomainSpawn(def.name, def.heapSize, def.fallback, def.priority)
 			if errno == ErrNone {
 				println("  [goroutine]", def.name, "id:", id)
+			} else {
+				println("  [goroutine-fail]", def.name, "errno:", errno)
 			}
 		} else {
-			println("  [skip]", def.name, "(no fallback)")
+			println("  [skip]", def.name, "(fallback disabled)")
 		}
+	}
+}
+
+func getDomainBootDef(name string) (domainDef, bool) {
+	switch name {
+	case "led":
+		return domainDef{name: "led", heapSize: HeapTiny, fallback: ledDomainEntry, priority: 2}, true
+	case "wifi":
+		return domainDef{name: "wifi", heapSize: HeapMedium, fallback: wifiDomainEntry, priority: 2}, true
+	case "logger":
+		return domainDef{name: "logger", heapSize: HeapSmall, fallback: nil, priority: 2}, true
+	case "picoceci":
+		return domainDef{name: "picoceci", heapSize: HeapSmall, fallback: nil, priority: 2}, true
+	case "tls":
+		return domainDef{name: "tls", heapSize: HeapSmall, fallback: nil, priority: 2}, true
+	default:
+		return domainDef{}, false
 	}
 }
 
@@ -119,6 +146,9 @@ func ledDomainEntry() {
 		c := colors[i%len(colors)]
 		ws2812Write(c[0], c[1], c[2])
 		i++
+		if i%8 == 0 {
+			println("[LED Domain] alive, step:", i)
+		}
 		vTaskDelay(600)
 	}
 }

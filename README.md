@@ -4,6 +4,7 @@ _was channelOS_
 
 ```
 # Some notes on getting started
+brew tap tinygo-org/tools
 brew install tinygo
 pip3 install pyserial      # for make monitor / make run
 git clone …

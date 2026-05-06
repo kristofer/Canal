@@ -17,6 +17,13 @@
 
 ENTRY(domain_entry)
 
+/* Per-domain overrides passed via --defsym:
+ *   __domain_ram_origin=0xADDR   (address of domain_ram_<name> in bridge_main.c)
+ *   __domain_ram_length=0x1000
+ */
+__domain_ram_origin = DEFINED(__domain_ram_origin) ? __domain_ram_origin : 0x3FC90000;
+__domain_ram_length = DEFINED(__domain_ram_length) ? __domain_ram_length : 0x1000;
+
 MEMORY
 {
     /* Domain code lives in its flash partition (XIP).
@@ -24,8 +31,7 @@ MEMORY
     DOMAIN_FLASH (rx)  : ORIGIN = 0x42100000, LENGTH = 64K
 
     /* Per-domain SRAM region — kernel allocates and passes base at spawn time */
-    DOMAIN_RAM   (rw)  : ORIGIN = 0x3FC80000, LENGTH = 16K
-    DOMAIN_HEAP  (rw)  : ORIGIN = 0x3FC84000, LENGTH = 4K
+    DOMAIN_RAM   (rw)  : ORIGIN = __domain_ram_origin, LENGTH = __domain_ram_length
 }
 
 SECTIONS
