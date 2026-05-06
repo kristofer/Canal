@@ -62,9 +62,9 @@ type domainDef struct {
 // loader. If a partition doesn't contain a valid ELF (e.g. during development
 // before domains are flashed), it falls back to the in-kernel goroutine entry.
 func bootDomains() {
-	// Temporary boot stack while flash-loaded domain runtime stabilizes.
-	// Keep LED and TLS out for now so one unstable domain does not block boot.
-	domainStack := []string{"wifi", "logger", "picoceci"}
+	// All supported domain names; order determines load priority.
+	// Domains whose flash partitions are empty are silently skipped.
+	domainStack := []string{"led", "wifi", "logger", "picoceci", "tls"}
 
 	for _, name := range domainStack {
 		def, ok := getDomainBootDef(name)

@@ -4,7 +4,6 @@ package main
 
 import (
 	"machine"
-	"time"
 	"unsafe"
 )
 
@@ -31,12 +30,6 @@ func main() {
 }
 
 func runLED() {
-	if domainMode {
-		println("[LED] domain mode: SPI output disabled for stability")
-		println("[LED] domain mode: parking task (no return)")
-		parkDomainTask()
-	}
-
 	err := machine.SPI0.Configure(machine.SPIConfig{
 		Frequency: 3_200_000,
 		Mode:      0,
@@ -46,40 +39,35 @@ func runLED() {
 	})
 	if err != nil {
 		println("[LED] SPI error:", err.Error())
-		return
+		// Park gracefully so the task doesn't exit and crash FreeRTOS.
+		for {
+			vTaskDelay(portMAX_DELAY)
+		}
 	}
 
 	println("[LED] Cycling colors")
 
+	// Alternate blue/white twice for a blinking effect, then orange, violet, off.
 	colors := [][3]uint8{
-		{0, 0, 255},
-		{255, 255, 255},
-		{0, 0, 255},
-		{255, 255, 255},
-		{0, 0, 255},
-		{255, 255, 255},
-		{255, 80, 0},
-		{80, 0, 255},
-		{0, 0, 0},
+		{0, 0, 255},     // blue
+		{255, 255, 255}, // white (blink 1)
+		{0, 0, 255},     // blue
+		{255, 255, 255}, // white (blink 2)
+		{0, 0, 255},     // blue
+		{255, 255, 255}, // white (blink 3)
+		{255, 80, 0},    // orange
+		{80, 0, 255},    // violet
+		{0, 0, 0},       // off
 	}
 	i := 0
 	for {
 		c := colors[i%len(colors)]
-		if !domainMode {
-			ws2812Write(c[0], c[1], c[2])
-		}
+		ws2812Write(c[0], c[1], c[2])
 		i++
 		if i%8 == 0 {
 			println("[LED] alive, step:", i)
 		}
-		time.Sleep(750 * time.Millisecond)
-	}
-}
-
-func parkDomainTask() {
-	for {
-		// Intentionally non-returning in domain mode.
-		// Keep this dependency-free: runtime/time hooks are not stable yet in domains.
+		vTaskDelay(750) // 750 ms between color changes
 	}
 }
 

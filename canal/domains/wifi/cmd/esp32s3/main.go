@@ -3,7 +3,6 @@
 package main
 
 import (
-	"time"
 	"unsafe"
 )
 
@@ -30,9 +29,10 @@ func main() {
 func runWiFi() {
 	println("[WiFi] Domain running (ESP32-S3)")
 	if domainMode {
-		println("[WiFi] domain mode: parking task (no sleep/runtime deps)")
+		println("[WiFi] domain mode: parking task (no WiFi stack yet)")
+		// Yield via FreeRTOS — no Go scheduler required, no CPU burn.
 		for {
-			// Intentionally non-returning while domain runtime is stabilized.
+			vTaskDelay(portMAX_DELAY)
 		}
 	}
 
@@ -42,6 +42,6 @@ func runWiFi() {
 		if ticker%10 == 0 {
 			println("[WiFi] alive, tick:", ticker)
 		}
-		time.Sleep(500 * time.Millisecond)
+		vTaskDelay(500) // 500 ms
 	}
 }
