@@ -42,6 +42,18 @@ LOGGER_RAM_ORIGIN  = $(call nm_addr,domain_ram_logger)
 PICOCECI_RAM_ORIGIN= $(call nm_addr,domain_ram_picoceci)
 TLS_RAM_ORIGIN     = $(call nm_addr,domain_ram_tls)
 
+# FreeRTOS symbol address extracted from the kernel ELF.
+# Domain ELFs declare vTaskDelay via //export (an external reference) but
+# tinygo build does not link FreeRTOS.  Passing the kernel's resolved address
+# via --defsym lets lld fill the domain's literal-pool entry so the call
+# reaches the running FreeRTOS at runtime (kernel and domains share one flat
+# virtual address space on ESP32-S3).
+VTASKDELAY_ADDR    = $(call nm_addr,vTaskDelay)
+
+# Linker flags injected into every domain build to resolve FreeRTOS symbols.
+# Expands to nothing when the kernel ELF has not been built yet.
+DOMAIN_LDFLAGS     = $(if $(VTASKDELAY_ADDR),-ldflags="--defsym=vTaskDelay=$(VTASKDELAY_ADDR)")
+
 # Domains are linked into fixed flash windows derived from their partition offsets.
 # This is required because TinyGo/xtensa output is not position-independent; the
 # loader must later map flash at the same linked virtual addresses.
@@ -132,6 +144,7 @@ led: _check_tinygo
 		-target=$(OUT_DIR)/led-target.json \
 		-opt=2 \
 		$(EXTRA_TAGS) \
+		$(DOMAIN_LDFLAGS) \
 		-o $(OUT_DIR)/led.elf \
 		.
 	@echo "Built: build/out/led.elf"
@@ -143,6 +156,7 @@ wifi: _check_tinygo
 		-target=$(OUT_DIR)/wifi-target.json \
 		-opt=2 \
 		$(EXTRA_TAGS) \
+		$(DOMAIN_LDFLAGS) \
 		-o $(OUT_DIR)/wifi.elf \
 		./cmd/esp32s3
 	@echo "Built: build/out/wifi.elf"
@@ -154,6 +168,7 @@ logger: _check_tinygo
 		-target=$(OUT_DIR)/logger-target.json \
 		-opt=2 \
 		$(EXTRA_TAGS) \
+		$(DOMAIN_LDFLAGS) \
 		-o $(OUT_DIR)/logger.elf \
 		.
 	@echo "Built: build/out/logger.elf"
@@ -165,6 +180,7 @@ tls: _check_tinygo
 		-target=$(OUT_DIR)/tls-target.json \
 		-opt=2 \
 		$(EXTRA_TAGS) \
+		$(DOMAIN_LDFLAGS) \
 		-o $(OUT_DIR)/tls.elf \
 		.
 	@echo "Built: build/out/tls.elf"
@@ -267,6 +283,7 @@ picoceci: _check_tinygo
 		-target=$(OUT_DIR)/picoceci-target.json \
 		-opt=2 \
 		-gc=leaking \
+		$(DOMAIN_LDFLAGS) \
 		-o build/out/picoceci.elf \
 		$(PICOCECI_DIR)
 	@echo "Built: build/out/picoceci.elf"
@@ -298,6 +315,7 @@ help:
 	@echo ""
 	@echo "  make flash            compile + flash kernel (auto-detects port)"
 	@echo "  make flash-domains    build + flash domain stack in DOMAIN_STACK"
+	@echo "                      (kernel must be built first -- run make flash before)"
 	@echo "  make flash-all        flash kernel then all domains"
 	@echo "  make flash-led        rebuild + flash LED domain only"
 	@echo "  make flash-wifi       rebuild + flash WiFi domain only"
