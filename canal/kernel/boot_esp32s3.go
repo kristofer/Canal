@@ -62,8 +62,9 @@ type domainDef struct {
 // loader. If a partition doesn't contain a valid ELF (e.g. during development
 // before domains are flashed), it falls back to the in-kernel goroutine entry.
 func bootDomains() {
-	// Keep this stack aligned with the default DOMAIN_STACK in the Makefile.
-	domainStack := []string{"led", "wifi", "logger", "picoceci", "tls"}
+	// Temporary boot stack while flash-loaded domain runtime stabilizes.
+	// Keep LED and TLS out for now so one unstable domain does not block boot.
+	domainStack := []string{"wifi", "logger", "picoceci"}
 
 	for _, name := range domainStack {
 		def, ok := getDomainBootDef(name)
@@ -97,15 +98,15 @@ func bootDomains() {
 func getDomainBootDef(name string) (domainDef, bool) {
 	switch name {
 	case "led":
-		return domainDef{name: "led", heapSize: HeapTiny, fallback: ledDomainEntry, priority: 2}, true
+		return domainDef{name: "led", heapSize: HeapTiny, fallback: ledDomainEntry, priority: 0}, true
 	case "wifi":
-		return domainDef{name: "wifi", heapSize: HeapMedium, fallback: wifiDomainEntry, priority: 2}, true
+		return domainDef{name: "wifi", heapSize: HeapMedium, fallback: wifiDomainEntry, priority: 0}, true
 	case "logger":
-		return domainDef{name: "logger", heapSize: HeapSmall, fallback: nil, priority: 2}, true
+		return domainDef{name: "logger", heapSize: HeapSmall, fallback: nil, priority: 0}, true
 	case "picoceci":
-		return domainDef{name: "picoceci", heapSize: HeapSmall, fallback: nil, priority: 2}, true
+		return domainDef{name: "picoceci", heapSize: HeapSmall, fallback: nil, priority: 0}, true
 	case "tls":
-		return domainDef{name: "tls", heapSize: HeapSmall, fallback: nil, priority: 2}, true
+		return domainDef{name: "tls", heapSize: HeapSmall, fallback: nil, priority: 0}, true
 	default:
 		return domainDef{}, false
 	}

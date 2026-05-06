@@ -2,6 +2,10 @@
 #include <string.h>
 #include "esp_err.h"
 #include "spi_flash_mmap.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "hal/mmu_hal.h"
+#include "hal/cache_ll.h"
 
 // app_main is provided by TinyGo object (kernel_idf.o).
 extern void app_main(void);
@@ -87,4 +91,52 @@ void canal_munmap_exec(uint32_t handle)
 {
     if (handle != 0)
         spi_flash_munmap((spi_flash_mmap_handle_t)handle);
+}
+
+// Map a file-backed flash segment at an explicit linked virtual address.
+// This mirrors the bootloader's fixed-address IROM/DROM mapping model so
+// non-PIC TinyGo domain binaries can keep their absolute literals/calls.
+int32_t canal_map_flash_segment(uint32_t vaddr, uint32_t flash_offset, uint32_t size)
+{
+    const uint32_t page_size = SPI_FLASH_MMU_PAGE_SIZE;
+    const uint32_t vaddr_aligned = vaddr & ~(page_size - 1);
+    const uint32_t paddr_aligned = flash_offset & ~(page_size - 1);
+    const uint32_t map_len = (vaddr - vaddr_aligned) + size;
+    uint32_t actual_mapped_len = 0;
+
+    mmu_hal_map_region(0, MMU_TARGET_FLASH0, vaddr_aligned, paddr_aligned, map_len, &actual_mapped_len);
+    if (actual_mapped_len < map_len)
+    {
+        return -1;
+    }
+
+    cache_bus_mask_t bus_mask = cache_ll_l1_get_bus(0, vaddr_aligned, map_len);
+    cache_ll_l1_enable_bus(0, bus_mask);
+#if !CONFIG_FREERTOS_UNICORE
+    bus_mask = cache_ll_l1_get_bus(1, vaddr_aligned, map_len);
+    cache_ll_l1_enable_bus(1, bus_mask);
+#endif
+    return 0;
+}
+
+//
+
+// Create a FreeRTOS task from a raw code entry address.
+// Doing the function-pointer cast in C avoids TinyGo ABI edge cases when
+// passing function pointers directly into xTaskCreate from Go.
+int32_t canal_create_task(uint32_t entry,
+                          const char *name,
+                          uint32_t stack_words,
+                          void *params,
+                          uint32_t priority,
+                          TaskHandle_t *out_handle)
+{
+    return (int32_t)xTaskCreatePinnedToCore(
+        (TaskFunction_t)(uintptr_t)entry,
+        name,
+        stack_words,
+        params,
+        priority,
+        out_handle,
+        tskNO_AFFINITY);
 }

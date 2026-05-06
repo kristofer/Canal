@@ -42,13 +42,30 @@ LOGGER_RAM_ORIGIN  = $(call nm_addr,domain_ram_logger)
 PICOCECI_RAM_ORIGIN= $(call nm_addr,domain_ram_picoceci)
 TLS_RAM_ORIGIN     = $(call nm_addr,domain_ram_tls)
 
+# Domains are linked into fixed flash windows derived from their partition offsets.
+# This is required because TinyGo/xtensa output is not position-independent; the
+# loader must later map flash at the same linked virtual addresses.
+LED_DROM_ORIGIN      = 0x3C101000
+LED_IROM_ORIGIN      = 0x42104000
+WIFI_DROM_ORIGIN     = 0x3C181000
+WIFI_IROM_ORIGIN     = 0x42184000
+LOGGER_DROM_ORIGIN   = 0x3C201000
+LOGGER_IROM_ORIGIN   = 0x42204000
+PICOCECI_DROM_ORIGIN = 0x3C281000
+PICOCECI_IROM_ORIGIN = 0x42285000
+TLS_DROM_ORIGIN      = 0x3C380000
+TLS_IROM_ORIGIN      = 0x42380000
+
 # Generate a per-domain linker script + target JSON, then call tinygo build.
 # $(1)=domain name, $(2)=DRAM origin hex, $(3)=DRAM length hex
+# $(4)=DROM origin hex, $(5)=IROM origin hex
 define build_domain_elf
 	$(eval _ld := $(OUT_DIR)/$(1)-domain.ld)
 	$(eval _json := $(OUT_DIR)/$(1)-target.json)
 	@mkdir -p $(OUT_DIR)
 	sed -e 's/DRAM (rw) : ORIGIN = 0x3FC88000, LENGTH = 416K/DRAM (rw) : ORIGIN = $(2), LENGTH = $(3)/' \
+		-e 's/DROM (r)  : ORIGIN = 0x3C000000, LENGTH = 32M/DROM (r)  : ORIGIN = $(4), LENGTH = 32M/' \
+		-e 's/IROM (rx) : ORIGIN = 0x42000000, LENGTH = 32M/IROM (rx) : ORIGIN = $(5), LENGTH = 32M/' \
 		-e 's/ENTRY(call_start_cpu0)/ENTRY(domain_entry)/' \
 		$(TINYGO_ROOT)/targets/esp32s3.ld > $(_ld)
 	printf '{"inherits":["esp32s3-generic"],"linkerscript":"%s"}\n' "$(_ld)" > $(_json)
@@ -110,7 +127,7 @@ build-domains: $(DOMAIN_STACK)
 
 led: _check_tinygo
 	@echo "Building LED domain..."
-	$(call build_domain_elf,led,$(LED_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
+	$(call build_domain_elf,led,$(LED_RAM_ORIGIN),$(DOMAIN_RAM_SIZE),$(LED_DROM_ORIGIN),$(LED_IROM_ORIGIN))
 	cd $(DOMAINS_DIR)/led-blinker && $(TINYGO) build \
 		-target=$(OUT_DIR)/led-target.json \
 		-opt=2 \
@@ -121,7 +138,7 @@ led: _check_tinygo
 
 wifi: _check_tinygo
 	@echo "Building WiFi domain..."
-	$(call build_domain_elf,wifi,$(WIFI_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
+	$(call build_domain_elf,wifi,$(WIFI_RAM_ORIGIN),$(DOMAIN_RAM_SIZE),$(WIFI_DROM_ORIGIN),$(WIFI_IROM_ORIGIN))
 	cd $(DOMAINS_DIR)/wifi && $(TINYGO) build \
 		-target=$(OUT_DIR)/wifi-target.json \
 		-opt=2 \
@@ -132,7 +149,7 @@ wifi: _check_tinygo
 
 logger: _check_tinygo
 	@echo "Building Logger domain..."
-	$(call build_domain_elf,logger,$(LOGGER_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
+	$(call build_domain_elf,logger,$(LOGGER_RAM_ORIGIN),$(DOMAIN_RAM_SIZE),$(LOGGER_DROM_ORIGIN),$(LOGGER_IROM_ORIGIN))
 	cd $(DOMAINS_DIR)/logger && $(TINYGO) build \
 		-target=$(OUT_DIR)/logger-target.json \
 		-opt=2 \
@@ -143,7 +160,7 @@ logger: _check_tinygo
 
 tls: _check_tinygo
 	@echo "Building TLS domain..."
-	$(call build_domain_elf,tls,$(TLS_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
+	$(call build_domain_elf,tls,$(TLS_RAM_ORIGIN),$(DOMAIN_RAM_SIZE),$(TLS_DROM_ORIGIN),$(TLS_IROM_ORIGIN))
 	cd $(DOMAINS_DIR)/tls && $(TINYGO) build \
 		-target=$(OUT_DIR)/tls-target.json \
 		-opt=2 \
@@ -245,7 +262,7 @@ TLS_ADDR ?= 0x380000
 
 picoceci: _check_tinygo
 	@echo "Building picoceci domain (target=$(TINYGO_TARGET))..."
-	$(call build_domain_elf,picoceci,$(PICOCECI_RAM_ORIGIN),$(DOMAIN_RAM_SIZE))
+	$(call build_domain_elf,picoceci,$(PICOCECI_RAM_ORIGIN),$(DOMAIN_RAM_SIZE),$(PICOCECI_DROM_ORIGIN),$(PICOCECI_IROM_ORIGIN))
 	$(TINYGO) build \
 		-target=$(OUT_DIR)/picoceci-target.json \
 		-opt=2 \

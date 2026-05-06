@@ -22,6 +22,7 @@ const maxDomains = 32
 
 var domainTable [maxDomains]Domain
 var domainTableLock uint32
+var domainParamsTable [maxDomains]DomainParams
 
 // InitDomainTable marks every slot as empty.
 func InitDomainTable() {
@@ -157,7 +158,8 @@ func SpawnDomainFromFlash(name string, priority uint8) (DomainID, uint8) {
 
 	spinUnlock(&domainTableLock)
 
-	params := &DomainParams{
+	params := &domainParamsTable[domainID]
+	*params = DomainParams{
 		ID:       domainID,
 		SyscallQ: unsafe.Pointer(syscallQ),
 		ReplyQ:   unsafe.Pointer(replyQ),
@@ -165,14 +167,14 @@ func SpawnDomainFromFlash(name string, priority uint8) (DomainID, uint8) {
 
 	var taskHandle TaskHandle_t
 	println("[Kernel] Starting domain task", name, "entry:", entryPoint, "prio:", priority)
-	result := xTaskCreate(
-		unsafe.Pointer(uintptr(entryPoint)),
+	result := BaseType_t(canal_create_task(
+		entryPoint,
 		cstring(name),
 		4096,
 		unsafe.Pointer(params),
 		uint32(priority),
 		&taskHandle,
-	)
+	))
 
 	if result != pdPASS {
 		println("[Kernel] xTaskCreate failed for", name, "entry:", entryPoint, "result:", uint32(result))

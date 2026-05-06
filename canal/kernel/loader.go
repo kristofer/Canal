@@ -27,6 +27,7 @@ const (
 	errRAMSegmentOutOfRange staticError = "loader: RAM PT_LOAD segment outside domain window"
 	errMmapExecFailed       staticError = "loader: spi_flash_mmap INST failed"
 	errEntryOutsideXIPSeg   staticError = "loader: entry point not covered by any XIP segment"
+	errMapSegmentFailed     staticError = "loader: explicit flash segment map failed"
 )
 
 //export canal_flash_read
@@ -40,6 +41,9 @@ func canal_mmap_exec(flashOffset uint32, size uint32, handleOut *uint32) uint32
 
 //export canal_munmap_exec
 func canal_munmap_exec(handle uint32)
+
+//export canal_map_flash_segment
+func canal_map_flash_segment(vaddr uint32, flashOffset uint32, size uint32) int32
 
 // ELF32 magic
 var elfMagic = [4]byte{0x7F, 'E', 'L', 'F'}
@@ -219,16 +223,17 @@ func LoadDomain(partitionOffset uint32, domainName string) (entryPoint uint32, e
 	return hdr.Entry, nil
 }
 
-// LoadDomainMapped is like LoadDomain but additionally maps the domain's
-// executable flash partition into the IROM XIP window via spi_flash_mmap and
-// returns the corrected (mapped) entry point address and the mmap handle.
-// The caller must call canal_munmap_exec(handle) when the domain exits.
+// LoadDomainMapped is like LoadDomain but maps XIP segments at their exact
+// linked virtual addresses. TinyGo's Xtensa output is not position-independent,
+// so literal pools and absolute calls require the original linked IROM/DROM
+// addresses to be valid at runtime.
 func LoadDomainMapped(partitionOffset uint32, partitionSize uint32, domainName string) (entryPoint uint32, mmapHandle uint32, err error) {
 	ramBase, ramSize, ok := domainRAMWindow(domainName)
 	if !ok {
 		return 0, 0, errNoDomainRAMWindow
 	}
 	ramLimit := ramBase + ramSize
+	_ = partitionSize
 
 	var hdr elf32Header
 	if canal_flash_read(partitionOffset, unsafe.Pointer(&hdr), uint32(unsafe.Sizeof(hdr))) != 0 {
@@ -258,13 +263,6 @@ func LoadDomainMapped(partitionOffset uint32, partitionSize uint32, domainName s
 
 	phBase := partitionOffset + hdr.PHOff
 	phSize := uint32(hdr.PHEntSize)
-
-	// Find the IROM segment that covers the entry point and load RAM segments.
-	// We need the IROM segment's file offset and linked VAddr to compute the
-	// real entry after remapping.
-	var iromFileOff uint32 // file offset of the IROM (.text) segment
-	var iromVAddr uint32   // linked VAddr of the IROM segment
-	var iromFileSz uint32  // file size of the IROM segment
 	iromFound := false
 
 	for i := uint16(0); i < hdr.PHNum; i++ {
@@ -292,15 +290,14 @@ func LoadDomainMapped(partitionOffset uint32, partitionSize uint32, domainName s
 			if ph.MemSz != ph.FileSz {
 				return 0, 0, errBSSInFlash
 			}
-			// Check if this IROM segment covers the entry point.
-			if !iromFound && hdr.Entry >= ph.VAddr && hdr.Entry < ph.VAddr+ph.FileSz {
-				iromFileOff = ph.Offset
-				iromVAddr = ph.VAddr
-				iromFileSz = ph.FileSz
+			if canal_map_flash_segment(ph.VAddr, partitionOffset+ph.Offset, ph.FileSz) != 0 {
+				return 0, 0, errMapSegmentFailed
+			}
+			if hdr.Entry >= ph.VAddr && hdr.Entry < ph.VAddr+ph.FileSz {
 				iromFound = true
 				println("[Loader] IROM segment covers entry; file_off:", ph.Offset)
 			}
-			println("[Loader] XIP segment; will be remapped")
+			println("[Loader] XIP segment; mapped at linked address")
 			continue
 		}
 
@@ -309,7 +306,6 @@ func LoadDomainMapped(partitionOffset uint32, partitionSize uint32, domainName s
 			continue
 		}
 
-		// RAM segment — copy/zero into domain buffer.
 		segEnd := ph.VAddr + ph.MemSz
 		if segEnd < ph.VAddr || ph.VAddr < ramBase || segEnd > ramLimit {
 			return 0, 0, errRAMSegmentOutOfRange
@@ -329,24 +325,6 @@ func LoadDomainMapped(partitionOffset uint32, partitionSize uint32, domainName s
 		return 0, 0, errEntryOutsideXIPSeg
 	}
 
-	// Map the domain's flash partition as executable (IROM).
-	// spi_flash_mmap requires the offset to be on a page boundary (64KB).
-	// partitionOffset is always page-aligned (0x100000, 0x180000, etc.).
-	// We map from the start of the partition; the IROM file content within it
-	// starts at iromFileOff. The mapping covers the whole partition.
-	var handle uint32
-	mappedBase := canal_mmap_exec(partitionOffset, partitionSize, &handle)
-	if mappedBase == 0 {
-		return 0, 0, errMmapExecFailed
-	}
-	println("[Loader] IROM mapped at virtual", mappedBase, "handle:", handle)
-
-	// Compute the real entry: mappedBase + file_offset_of_entry.
-	// file_offset_of_entry = iromFileOff + (entry_linked_vaddr - iromVAddr)
-	entryFileOffset := iromFileOff + (hdr.Entry - iromVAddr)
-	realEntry := mappedBase + entryFileOffset
-	println("[Loader] real entry:", realEntry, "(linked:", hdr.Entry, ")")
-	_ = iromFileSz
-
-	return realEntry, handle, nil
+	println("[Loader] real entry:", hdr.Entry, "(linked:", hdr.Entry, ")")
+	return hdr.Entry, 0, nil
 }

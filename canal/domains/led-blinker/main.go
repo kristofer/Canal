@@ -8,12 +8,19 @@ import (
 	"unsafe"
 )
 
+var domainMode bool
+
 // domain_entry is called by the kernel's ELF loader via xTaskCreate.
-// It runs in a FreeRTOS task context with no TinyGo runtime init, so it
-// must not use goroutines or the GC. It calls the domain's main loop directly.
+// It receives the FreeRTOS task parameter pointer allocated by the kernel.
+// The first field is DomainID.
 //
 //export domain_entry
-func domain_entry(domainID uint16, syscallQ, replyQ unsafe.Pointer) {
+func domain_entry(param unsafe.Pointer) {
+	domainMode = true
+	var domainID uint16
+	if param != nil {
+		domainID = *(*uint16)(param)
+	}
 	println("[LED] Domain", domainID, "starting from flash")
 	runLED()
 }
@@ -24,6 +31,12 @@ func main() {
 }
 
 func runLED() {
+	if domainMode {
+		println("[LED] domain mode: SPI output disabled for stability")
+		println("[LED] domain mode: parking task (no return)")
+		parkDomainTask()
+	}
+
 	err := machine.SPI0.Configure(machine.SPIConfig{
 		Frequency: 3_200_000,
 		Mode:      0,
@@ -52,12 +65,21 @@ func runLED() {
 	i := 0
 	for {
 		c := colors[i%len(colors)]
-		ws2812Write(c[0], c[1], c[2])
+		if !domainMode {
+			ws2812Write(c[0], c[1], c[2])
+		}
 		i++
 		if i%8 == 0 {
 			println("[LED] alive, step:", i)
 		}
 		time.Sleep(750 * time.Millisecond)
+	}
+}
+
+func parkDomainTask() {
+	for {
+		// Intentionally non-returning in domain mode.
+		// Keep this dependency-free: runtime/time hooks are not stable yet in domains.
 	}
 }
 

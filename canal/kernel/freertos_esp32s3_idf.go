@@ -51,6 +51,16 @@ func xTaskCreate(
 	)
 }
 
+//export canal_create_task
+func canal_create_task(
+	entry uint32,
+	name *byte,
+	stackWords uint32,
+	params unsafe.Pointer,
+	priority uint32,
+	outHandle *TaskHandle_t,
+) int32
+
 //export vTaskStartScheduler
 func vTaskStartScheduler()
 

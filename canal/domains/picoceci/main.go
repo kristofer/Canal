@@ -26,7 +26,11 @@ const version = "0.1.0-dev"
 // domain_entry is called by the kernel's ELF loader via xTaskCreate.
 //
 //export domain_entry
-func domain_entry(domainID uint16, syscallQ, replyQ unsafe.Pointer) {
+func domain_entry(param unsafe.Pointer) {
+	var domainID uint16
+	if param != nil {
+		domainID = *(*uint16)(param)
+	}
 	println("[picoceci] Domain", domainID, "starting from flash")
 	runPicoceci()
 }
