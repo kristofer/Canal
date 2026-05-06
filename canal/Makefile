@@ -42,17 +42,21 @@ LOGGER_RAM_ORIGIN  = $(call nm_addr,domain_ram_logger)
 PICOCECI_RAM_ORIGIN= $(call nm_addr,domain_ram_picoceci)
 TLS_RAM_ORIGIN     = $(call nm_addr,domain_ram_tls)
 
-# FreeRTOS symbol address extracted from the kernel ELF.
-# Domain ELFs declare vTaskDelay via //export (an external reference) but
-# tinygo build does not link FreeRTOS.  Passing the kernel's resolved address
-# via --defsym lets lld fill the domain's literal-pool entry so the call
-# reaches the running FreeRTOS at runtime (kernel and domains share one flat
+# Linker flags injected into every domain build to resolve FreeRTOS/ESP-IDF
+# symbols (vTaskDelay, xQueueReceive, etc.).
+#
+# --just-symbols tells lld to read the symbol table from the kernel ELF and
+# treat every symbol as an absolute definition at its linked virtual address.
+# No sections are copied; domain code simply calls into the kernel's live
+# FreeRTOS/ESP-IDF functions at runtime (kernel and domains share one flat
 # virtual address space on ESP32-S3).
-VTASKDELAY_ADDR    = $(call nm_addr,vTaskDelay)
-
-# Linker flags injected into every domain build to resolve FreeRTOS symbols.
+#
+# This is intentionally open-ended: adding new FreeRTOS/ESP-IDF //export
+# declarations to any domain package will resolve automatically without any
+# extra Makefile changes.
+#
 # Expands to nothing when the kernel ELF has not been built yet.
-DOMAIN_LDFLAGS     = $(if $(VTASKDELAY_ADDR),-ldflags="--defsym=vTaskDelay=$(VTASKDELAY_ADDR)")
+DOMAIN_LDFLAGS     = $(if $(wildcard $(KERNEL_ELF)),-ldflags="--just-symbols=$(KERNEL_ELF)")
 
 # Domains are linked into fixed flash windows derived from their partition offsets.
 # This is required because TinyGo/xtensa output is not position-independent; the
