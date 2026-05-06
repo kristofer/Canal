@@ -7,9 +7,28 @@ set(CANAL_OBJ "${CMAKE_BINARY_DIR}/kernel_idf.o")
 set(CANAL_OBJ_RAW "${CMAKE_BINARY_DIR}/kernel_idf_raw.o")
 
 set(TINYGO_REDEFINE_ARGS
+    # libc / allocator symbols — IDF newlib also provides these, but we rename
+    # the TinyGo kernel's copies so they don't conflict with domain builds.
     --redefine-sym malloc=tinygo_malloc
     --redefine-sym calloc=tinygo_calloc
     --redefine-sym free=tinygo_free
+    --redefine-sym __errno_location=tinygo___errno_location
+    # TinyGo target-support symbols (Xtensa vectors, ISR wrappers, startup).
+    # These are emitted by TinyGo for every esp32s3 binary; renaming them in
+    # the kernel object prevents --just-symbols from exposing them as absolute
+    # definitions that clash with the domain's own fresh copies.
+    --redefine-sym handleInterrupt=tinygo_handleInterrupt
+    --redefine-sym _vector_table=tinygo__vector_table
+    --redefine-sym call_start_cpu0=tinygo_call_start_cpu0
+    --redefine-sym main=tinygo_main
+    # TinyGo runtime symbols.
+    --redefine-sym runtime_putchar=tinygo_runtime_putchar
+    --redefine-sym runtime.buildVersion=tinygo_runtime.buildVersion
+    # Compiler-rt / math builtins added in TinyGo 0.41.
+    --redefine-sym fminimum=tinygo_fminimum
+    --redefine-sym fminimumf=tinygo_fminimumf
+    --redefine-sym fmaximum=tinygo_fmaximum
+    --redefine-sym fmaximumf=tinygo_fmaximumf
     --redefine-sym __atomic_add_fetch_2=tinygo___atomic_add_fetch_2
     --redefine-sym __atomic_add_fetch_4=tinygo___atomic_add_fetch_4
     --redefine-sym __atomic_add_fetch_8=tinygo___atomic_add_fetch_8

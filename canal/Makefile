@@ -60,7 +60,16 @@ TLS_RAM_ORIGIN     = $(call nm_addr,domain_ram_tls)
 # interpret it as a TinyGo link flag (which would produce "flag not defined").
 #
 # Expands to nothing when the kernel ELF has not been built yet.
-DOMAIN_LDFLAGS     = $(if $(wildcard $(KERNEL_ELF)),-ldflags="-extldflags=--just-symbols=$(KERNEL_ELF)")
+#
+# --allow-multiple-definition is required because canal_idf_bridge.elf contains
+# both IDF/newlib symbols (malloc, __errno_location, …) and unrenamed TinyGo
+# target-support symbols (handleInterrupt, _vector_table, call_start_cpu0, …).
+# When a domain is compiled with TinyGo it re-emits those same symbols; telling
+# lld to allow duplicates and keep the first definition (the domain's own object
+# files, which appear before --just-symbols in the link order) is the correct
+# resolution.  FreeRTOS/IDF-only symbols (vTaskDelay, xQueueSend, …) are not
+# defined in domain code, so they still resolve to the kernel's live addresses.
+DOMAIN_LDFLAGS     = $(if $(wildcard $(KERNEL_ELF)),-ldflags="-extldflags=--just-symbols=$(KERNEL_ELF) -extldflags=--allow-multiple-definition")
 
 # Domains are linked into fixed flash windows derived from their partition offsets.
 # This is required because TinyGo/xtensa output is not position-independent; the
