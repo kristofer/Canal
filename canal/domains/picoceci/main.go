@@ -13,6 +13,7 @@
 package main
 
 import (
+	"strings"
 	"unsafe"
 
 	"github.com/kristofer/picoceci/pkg/bytecode"
@@ -57,6 +58,7 @@ func runPicoceci() {
 	loader := module.NewLoader(resolver)
 
 	println("[picoceci] Ready.")
+	println("  tip: type '---' to enter/exit paste mode for multi-line programs")
 	println("")
 
 	// Start REPL
@@ -69,53 +71,90 @@ func runPicoceci() {
 }
 
 // runREPL runs the interactive REPL using Canal's console I/O.
-// Uses println for output and a simple line reader for input.
+// Supports paste mode using '---' delimiters for multi-line programs.
 func runREPL(loader *module.Loader) {
 	console := newConsole()
+	var buf strings.Builder
+	inPaste := false
 
 	for {
-		print("> ")
+		if inPaste {
+			console.Print("... ")
+		} else {
+			console.Print("> ")
+		}
 
 		line, err := console.ReadLine()
 		if err != nil {
+			if _, ok := err.(*eofError); ok {
+				console.Println("")
+				return
+			}
 			vTaskDelay(10)
 			continue
 		}
+
+		if line == "---" {
+			if !inPaste {
+				inPaste = true
+				buf.Reset()
+				console.Println("(paste mode on: type '---' to run)")
+			} else {
+				inPaste = false
+				src := buf.String()
+				buf.Reset()
+				if src != "" {
+					evalREPLSource(loader, src)
+				}
+			}
+			continue
+		}
+
+		if inPaste {
+			buf.WriteString(line)
+			buf.WriteByte('\n')
+			continue
+		}
+
 		if line == "" {
 			continue
 		}
 
-		// Parse
-		l := lexer.NewString(line)
-		p := parser.New(l)
-		prog, err := p.ParseProgram()
-		if err != nil {
-			println("parse: " + err.Error())
-			continue
-		}
+		evalREPLSource(loader, line)
+	}
+}
 
-		// Compile
-		c := bytecode.NewCompilerWithLoader(loader)
-		chunk, err := c.Compile(prog.Statements)
-		if err != nil {
-			println("compile: " + err.Error())
-			continue
-		}
+func evalREPLSource(loader *module.Loader, src string) {
+	// Parse
+	l := lexer.NewString(src)
+	p := parser.New(l)
+	prog, err := p.ParseProgram()
+	if err != nil {
+		println("parse: " + err.Error())
+		return
+	}
 
-		// Run with fresh VM each time (memory optimization)
-		vm := bytecode.NewVM()
-		vm.SetBlocks(c.GetBlocks())
-		vm.AddGlobals(c.GetGlobals())
-		result, err := vm.Run(chunk)
-		if err != nil {
-			println("error: " + err.Error())
-			continue
-		}
+	// Compile
+	c := bytecode.NewCompilerWithLoader(loader)
+	chunk, err := c.Compile(prog.Statements)
+	if err != nil {
+		println("compile: " + err.Error())
+		return
+	}
 
-		// Print result
-		if result != nil {
-			println("=> " + result.PrintString())
-		}
+	// Run with fresh VM each time (memory optimization)
+	vm := bytecode.NewVM()
+	vm.SetBlocks(c.GetBlocks())
+	vm.AddGlobals(c.GetGlobals())
+	result, err := vm.Run(chunk)
+	if err != nil {
+		println("error: " + err.Error())
+		return
+	}
+
+	// Print result
+	if result != nil {
+		println("=> " + result.PrintString())
 	}
 }
 
