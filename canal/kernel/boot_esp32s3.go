@@ -160,7 +160,7 @@ func ledDomainEntry() {
 		if i%8 == 0 {
 			println("[LED Domain] alive, step:", i)
 		}
-		vTaskDelay(600)
+		vTaskDelay(100)
 	}
 }
 
@@ -214,7 +214,7 @@ func ws2812EncodeByte(b uint8, out []byte) {
 
 func printStats() {
 	println("\n--- System Stats ---")
-	println("Uptime:", millis()/1000, "seconds")
+	println("Uptime:", millis(), "ms")
 	println("Free heap:", xPortGetFreeHeapSize()/1024, "KB")
 	for i := DomainID(1); i < maxDomains; i++ {
 		if domainTable[i].State != DomainStateInvalid {

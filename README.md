@@ -18,6 +18,39 @@ operating system concepts, embedded programming, and the Go programming language
 
 **Picoceci** is a companion programming language for Canal, designed to be simple and easy to learn. It is a small, statically typed language that compiles to Go, and is intended to be used for programming the Canal microkernel and applications running on it. See the [picoceci repository](https://github.com/kristofer/picoceci) for more information.
 
+## Known-Good TCP picoceci Flow (ESP32-S3)
+
+This is the currently validated sequence for running picoceci over TCP on the WiFi domain.
+
+```bash
+cd canal
+
+# 1) Rebuild kernel (IDF bridge)
+make build
+
+# 2) Build + flash default domains (led + wifi), passing WiFi credentials
+make flash-domains \
+	PORT=/dev/cu.usbmodem11201 \
+	DOMAIN_STACK="led wifi" \
+	WIFI_SSID="YOUR_SSID" \
+	WIFI_PASSWORD="YOUR_PASSWORD" \
+	WIFI_PORT=2323
+
+# 3) Flash kernel if needed
+make flash PORT=/dev/cu.usbmodem11201
+
+# 4) Monitor boot/runtime logs
+tinygo monitor -port /dev/cu.usbmodem11201
+```
+
+When WiFi reports an IP and TCP server readiness, connect from another terminal:
+
+```bash
+nc <device-ip> 2323
+```
+
+You should see the picoceci prompt and can paste multi-line programs using `---` paste mode delimiters.
+
 ## 📚 Educational Materials
 
 A planned series of articles covering Canal and its companion language

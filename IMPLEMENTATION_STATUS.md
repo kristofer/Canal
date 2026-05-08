@@ -1,5 +1,34 @@
 # TCP Network Interpreter - Implementation Status
 
+## ✅ Validated Working State (2026-05-08)
+
+The WiFi domain is now booting reliably from flash, bringing up TCP, and running picoceci over a network client. Multi-line paste mode is confirmed working in live runs.
+
+### Confirmed Working
+- WiFi domain loads from flash and starts successfully
+- WiFi connects and obtains DHCP address
+- TCP listener accepts client connections
+- picoceci REPL runs over TCP
+- Pasted multi-line programs execute successfully
+
+### Fixes That Unblocked Stability
+- Transcript sink wiring for picoceci VM:
+    - WiFi interpreter uses `bytecode.NewVMWithTranscript(console)` so Transcript output is routed to the TCP client writer.
+- WiFi domain XIP mapping correction:
+    - `WIFI_IROM_ORIGIN` adjusted to `0x42185000` in `canal/Makefile` so linked virtual offsets and flash file offsets map correctly at runtime.
+- Kernel boot stack alignment:
+    - Default kernel domain stack reduced to `led,wifi` in `kernel/boot_esp32s3.go` to avoid noisy attempts to load domains not in default flash workflow.
+- Early startup hardening for TinyGo runtime:
+    - WiFi domain now bootstraps a minimal DRAM heap at entry before early startup/logging paths.
+    - Later allocation path can move to PSRAM.
+- IP wait-loop short-circuit:
+    - Kernel now retains STA netif pointer and exports it to domains.
+    - WiFi domain polls `esp_netif_get_ip_info` and exits wait loop as soon as IP is assigned.
+
+### Integration Notes
+- `go.mod` keeps a local replace for picoceci (`=> ../../picoceci`), so runtime behavior follows the local picoceci checkout.
+- Kernel and domain symbol sharing still relies on `--just-symbols` and force-retained IDF symbols in `build/idf-app/CMakeLists.txt`.
+
 ## ✅ What's Been Completed
 
 ### 1. Build System Integration
@@ -66,9 +95,9 @@
 └─────────────────────────────────────────┘
 ```
 
-## ✅ Current Status: READY FOR HARDWARE TESTING
+## ✅ Current Status: WORKING ON HARDWARE
 
-The code compiles successfully and **WiFi initialization is now in place**!
+The end-to-end TCP interpreter path is now working on-device.
 
 ### What's Working:
 - ✅ Kernel initializes ESP-IDF WiFi stack at boot (see [kernel/freertos_esp32s3_idf.go](canal/kernel/freertos_esp32s3_idf.go#L177-L208))
@@ -78,34 +107,15 @@ The code compiles successfully and **WiFi initialization is now in place**!
 - ✅ All symbols properly force-linked in CMakeLists.txt
 - ✅ WiFi domain can call WiFi/socket functions
 
-### What Needs Hardware Testing:
-- ❓ Actual WiFi connection to AP
-- ❓ DHCP IP address acquisition
-- ❓ TCP server socket binding
-- ❓ TCP client acceptance
-- ❓ Network data transmission
-- ❓ picoceci REPL over TCP
+### Remaining Follow-ups
+- Add event-driven connect completion (instead of periodic polling) if desired
+- Add early boot log ring-buffer path for allocation-free diagnostics
+- Add regression test checklist for domain XIP link-origin consistency
 
-## 🔧 Next Steps to Make it Work
+## 🔧 Next Steps
 
-### Option 1: Minimal WiFi Init (Quickest)
-Add WiFi initialization to kernel startup in [kernel/cmd/esp32s3/main_idf.go](canal/kernel/cmd/esp32s3/main_idf.go):
-
-```go
-// In initIDF() or similar startup function
-func initWiFi() {
-    // Initialize default netif
-    esp_netif_init()
-
-    // Create default event loop
-    esp_event_loop_create_default()
-
-    // Create default WiFi STA netif
-    esp_netif_create_default_wifi_sta()
-
-    // WiFi will be started by domain
-}
-```
+### Option 1: Move to Event-Driven IP Ready
+Replace the polling short-circuit with an explicit event-group signal from `IP_EVENT_STA_GOT_IP` for faster and cleaner connect readiness.
 
 ### Option 2: Full Implementation
 1. Add proper WiFi event handling
@@ -153,15 +163,14 @@ telnet <device-ip> 2323
 - ✅ Build system accepts WiFi credentials
 - ✅ Kernel exports WiFi/network symbols
 - ✅ Domain links against kernel symbols
-- ✅ Code compiles without errors
-- ✅ Architecture is sound and extensible
+- ✅ WiFi domain boots from flash and runs reliably
+- ✅ TCP picoceci interpreter works over network
+- ✅ Multi-line paste workflow is operational
 
-## 🔨 What Needs Hardware Testing
-- ❓ WiFi connection establishment
-- ❓ TCP server socket creation
-- ❓ TCP client connections
-- ❓ Network I/O over TCP
-- ❓ picoceci REPL interaction
+## 🔨 What Still Needs Validation
+- ❓ Long-duration soak test for WiFi reconnect behavior
+- ❓ Concurrent logging load while running large pasted programs
+- ❓ Graceful client disconnect/reconnect under repeated cycles
 
 ## 💡 Key Insights
 

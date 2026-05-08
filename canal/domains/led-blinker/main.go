@@ -49,15 +49,14 @@ func runLED() {
 
 	// Alternate blue/white twice for a blinking effect, then orange, violet, off.
 	colors := [][3]uint8{
-		{0, 0, 255},     // blue
-		{255, 255, 255}, // white (blink 1)
-		{0, 0, 255},     // blue
-		{255, 255, 255}, // white (blink 2)
-		{0, 0, 255},     // blue
-		{255, 255, 255}, // white (blink 3)
-		{255, 80, 0},    // orange
-		{80, 0, 255},    // violet
-		{0, 0, 0},       // off
+		{0, 0, 255},    // blue
+		{253, 218, 13}, // yellow (blink 1)
+		{0, 0, 255},    // blue
+		{253, 218, 13}, // yellow (blink 2)
+		{0, 0, 255},    // blue
+		{255, 80, 0},   // orange
+		{80, 0, 255},   // violet
+		{0, 0, 0},      // off
 	}
 	i := 0
 	for {
