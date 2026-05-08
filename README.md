@@ -38,3 +38,5 @@ each article.
 ## Futures
 
 canal probably needs to be able to use the esp32s3 realtime clock. with the wifi stuff coming up, maybe a small shim in canal can do an NTP call and get time of day, set the freertos clock, and then canal can use actual timestamps for console messages. build a plan that can outline what needs to be done to achieve this
+
+also rewrite the early boot aspects so that we don't get early allocation failures. Maybe a ring buffer, maybe an early task in rtos that runs when the ring buffer is full and then we can flush it to the console. This would be a good way to get early boot logs without risking allocation failures.

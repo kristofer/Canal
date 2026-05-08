@@ -43,6 +43,16 @@ type pmfCfg struct {
 	required bool
 }
 
+type espIP4Addr struct {
+	addr uint32
+}
+
+type espNetifIPInfo struct {
+	ip      espIP4Addr
+	netmask espIP4Addr
+	gw      espIP4Addr
+}
+
 // Socket constants
 const (
 	ESP_ERR_WIFI_NOT_INIT = 0x3001
@@ -100,6 +110,12 @@ func canalWiFiInitDefault() int32
 
 //export canal_domain_psram_alloc
 func canalDomainPsramAlloc(size uint32) unsafe.Pointer
+
+//export canal_wifi_sta_netif
+func canalWiFiStaNetif() unsafe.Pointer
+
+//export esp_netif_get_ip_info
+func espNetifGetIPInfo(netif unsafe.Pointer, ipInfo unsafe.Pointer) int32
 
 // LwIP socket API - provided by kernel via ESP-IDF link
 //

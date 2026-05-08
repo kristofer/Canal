@@ -70,10 +70,11 @@ type domainDef struct {
 // loader. If a partition doesn't contain a valid ELF (e.g. during development
 // before domains are flashed), it falls back to the in-kernel goroutine entry.
 func bootDomains() {
-	// Default boot stack. WiFi domain already embeds picoceci REPL over TCP,
-	// so the standalone picoceci domain is not auto-started by default.
-	// Domains whose flash partitions are empty are silently skipped.
-	domainStack := []string{"led", "wifi", "logger", "tls"}
+	// Default boot stack. Keep this aligned with the Makefile's default
+	// DOMAIN_STACK; flashing domains does not configure the kernel boot list.
+	// WiFi already embeds picoceci REPL over TCP, so standalone picoceci,
+	// logger, and tls are not auto-started by default.
+	domainStack := []string{"led", "wifi"}
 
 	for _, name := range domainStack {
 		def, ok := getDomainBootDef(name)

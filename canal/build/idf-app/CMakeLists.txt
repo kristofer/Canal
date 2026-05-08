@@ -32,6 +32,7 @@ target_link_options(${PROJECT_EXECUTABLE} PRIVATE
 	"-Wl,-u,lwip_setsockopt"
 	"-Wl,-u,lwip_fcntl"
 	"-Wl,-u,esp_netif_init"
+	"-Wl,-u,esp_netif_get_ip_info"
 	"-Wl,-u,esp_event_loop_create_default"
 	"-Wl,-u,esp_netif_create_default_wifi_sta"
 	"-Wl,-u,nvs_flash_init"

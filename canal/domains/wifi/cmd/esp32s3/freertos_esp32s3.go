@@ -29,6 +29,17 @@ var runtimeHeapEnd uintptr
 var _edataSymbol [0]byte
 
 const wifiPSRAMHeapSize uint32 = 512 * 1024
+const wifiEarlyDRAMHeapSize uintptr = 12 * 1024
+
+// initDomainHeapEarly bootstraps TinyGo's leaking allocator without performing
+// any allocation or logging. This makes early startup paths safe even if a
+// hidden TinyGo print/string path allocates before the domain is fully up.
+func initDomainHeapEarly() {
+	base := uintptr(unsafe.Pointer(&_edataSymbol))
+	runtimeHeapStart = base
+	runtimeHeapPtr = base
+	runtimeHeapEnd = base + wifiEarlyDRAMHeapSize
+}
 
 func initDomainHeap() {
 	if psram := canalDomainPsramAlloc(wifiPSRAMHeapSize); psram != nil {
@@ -43,5 +54,6 @@ func initDomainHeap() {
 	base := uintptr(unsafe.Pointer(&_edataSymbol))
 	runtimeHeapStart = base
 	runtimeHeapPtr = base
+	runtimeHeapEnd = base + wifiEarlyDRAMHeapSize
 	println("[WiFi] PSRAM alloc failed, using DRAM heap from _edata")
 }

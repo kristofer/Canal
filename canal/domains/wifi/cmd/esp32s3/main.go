@@ -20,7 +20,12 @@ var heapInitialized bool
 //
 //export domain_entry
 func domain_entry(param unsafe.Pointer) {
-	// Keep entry path minimal; defer heap setup until REPL startup.
+	// Bootstrap a tiny DRAM heap immediately so any hidden TinyGo allocation
+	// in early startup or logging has valid backing memory.
+	initDomainHeapEarly()
+	heapInitialized = true
+
+	// Keep entry path minimal after heap bootstrap.
 	println("[WiFi] Domain entry called")
 
 	domainMode = true
@@ -36,11 +41,16 @@ func main() {
 }
 
 func runWiFi() {
+	ssid := safeCfgString(wifiSSID)
+	password := safeCfgString(wifiPassword)
+	portCfg := safeCfgString(tcpPort)
+	build := safeCfgString(wifiDomainBuild)
+
 	println("[WiFi] runWiFi started")
-	println("[WiFi] Build:", wifiDomainBuild)
+	println("[WiFi] Build:", build)
 
 	// Check if WiFi credentials are configured
-	if wifiSSID == "" {
+	if ssid == "" {
 		println("[WiFi] ERROR: WiFi SSID not configured")
 		println("[WiFi] Parking domain...")
 		for {
@@ -52,7 +62,7 @@ func runWiFi() {
 
 	// Connect to WiFi with detailed logging
 	println("[WiFi] Calling connectToWiFi...")
-	if !connectToWiFi(wifiSSID, wifiPassword) {
+	if !connectToWiFi(ssid, password) {
 		println("[WiFi] Failed to connect, parking domain...")
 		for {
 			vTaskDelay(1000)
@@ -64,8 +74,8 @@ func runWiFi() {
 
 	// Parse TCP port
 	port := uint16(2323)
-	if tcpPort != "" {
-		port = uint16(atoi(tcpPort))
+	if portCfg != "" {
+		port = uint16(atoi(portCfg))
 	}
 
 	// Create TCP server
@@ -89,10 +99,10 @@ func runWiFi() {
 			continue
 		}
 
-		// Initialize TinyGo heap lazily before first REPL session.
-		if !heapInitialized {
+		// Switch future allocations to PSRAM once the domain is fully up.
+		if heapInitialized {
 			initDomainHeap()
-			heapInitialized = true
+			heapInitialized = false
 		}
 
 		// Run REPL for this client
@@ -106,6 +116,27 @@ func runWiFi() {
 		lwipClose(clientFd)
 		logToSerialLine("[TCP] Client disconnected")
 	}
+}
+
+type stringHeader struct {
+	data uintptr
+	len  int
+}
+
+// safeCfgString prevents crashes if a -X injected string header is malformed.
+// It returns an empty string when pointer/length look invalid.
+func safeCfgString(s string) string {
+	h := (*stringHeader)(unsafe.Pointer(&s))
+	if h.len == 0 {
+		return ""
+	}
+	if h.len < 0 || h.len > 256 {
+		return ""
+	}
+	if h.data < 0x3c000000 || h.data >= 0x60000000 {
+		return ""
+	}
+	return s
 }
 
 // atoi converts string to int (simple implementation)

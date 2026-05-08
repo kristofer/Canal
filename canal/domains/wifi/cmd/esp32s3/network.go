@@ -66,18 +66,27 @@ func connectToWiFi(ssid, password string) bool {
 	}
 	vTaskDelay(1)
 
-	// Wait for connection (simplified - in production use event handler)
+	// Wait for DHCP/IP assignment and stop as soon as a non-zero address appears.
 	println("[WiFi] Step 6: Waiting for IP address (10 seconds)...")
+	netif := canalWiFiStaNetif()
+	if netif == nil {
+		println("[WiFi] STA netif unavailable")
+		return false
+	}
 	for i := 0; i < 100; i++ {
+		var ipInfo espNetifIPInfo
+		if espNetifGetIPInfo(netif, unsafe.Pointer(&ipInfo)) == 0 && ipInfo.ip.addr != 0 {
+			println("[WiFi] Got IP address")
+			return true
+		}
 		vTaskDelay(100) // Wait 100ms
 		if i%10 == 0 {
 			println("[WiFi] Still waiting... (", i/10, "seconds)")
 		}
-		// In a real implementation, check for IP_EVENT_STA_GOT_IP event
 	}
 
-	println("[WiFi] Connection sequence complete!")
-	return true
+	println("[WiFi] Timed out waiting for IP address")
+	return false
 }
 
 // createTCPServer creates a TCP server socket listening on the specified port

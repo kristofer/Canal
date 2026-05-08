@@ -190,6 +190,9 @@ func espEventLoopCreateDefault() int32
 //export esp_netif_create_default_wifi_sta
 func espNetifCreateDefaultWifiSta() unsafe.Pointer
 
+//export esp_netif_get_ip_info
+func espNetifGetIPInfo(netif unsafe.Pointer, ipInfo unsafe.Pointer) int32
+
 // NVS (non-volatile storage) - required for WiFi
 //
 //export nvs_flash_init
@@ -197,6 +200,13 @@ func nvsFlashInit() int32
 
 //export nvs_flash_erase
 func nvsFlashErase() int32
+
+var wifiStaNetif unsafe.Pointer
+
+//export canal_wifi_sta_netif
+func canalWiFiStaNetif() unsafe.Pointer {
+	return wifiStaNetif
+}
 
 func initWiFi() {
 	println("[kernel] Initializing WiFi stack...")
@@ -232,6 +242,8 @@ func initWiFi() {
 	if netif := espNetifCreateDefaultWifiSta(); netif == nil {
 		println("[kernel] esp_netif_create_default_wifi_sta failed")
 		return
+	} else {
+		wifiStaNetif = netif
 	}
 
 	// Initialize WiFi driver with ESP-IDF default config.
