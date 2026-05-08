@@ -35,6 +35,7 @@ The ELF loading path (`loader.go` + `SpawnDomainFromFlash()`) is written but **n
 **The problem:** When the ELF loader calls `xTaskCreate(entryPoint, ...)`, it jumps directly to `domain_entry`. A standard TinyGo binary expects `_start` → `runtime.init` → `main`. Skipping this may leave the GC and scheduler uninitialized.
 
 **Decision:** Domains share the kernel's TinyGo runtime. They are **not** standalone TinyGo binaries with their own scheduler/GC. Each domain is compiled with `-buildmode=c-shared` or a custom entry-point-only linker setup where:
+
 - `.bss` zeroing is handled by the ELF loader (already done)
 - The domain uses `go` goroutines and `time.Sleep` through the kernel's scheduler
 - The kernel's GC owns all memory; per-domain heaps are just pre-allocated slices
@@ -117,6 +118,7 @@ xTaskCreate(
 Flash the LED domain ELF and confirm it loads without falling back to the goroutine path. The serial boot log should show `[flash] led id: 1`, not `[goroutine] led`.
 
 If it fails, the most likely causes:
+
 1. **Missing domain_entry export**: Confirm `//export domain_entry` is in the LED domain source and the linker script's `ENTRY(domain_entry)` matches.
 2. **Wrong virtual addresses**: The ELF's PT_LOAD VAddr must point to writable DRAM/PSRAM, not flash. Check with `xtensa-esp32s3-elf-readelf -l build/out/led.elf`.
 3. **Runtime not initialized**: If LED runs but immediately crashes, it may be calling GC/goroutine APIs before runtime init. For Phase 0, keep LED domain free of goroutines and GC in `domain_entry` — use only raw loops and machine API.
@@ -167,6 +169,7 @@ Once enabled, IDF's heap allocator will automatically use PSRAM for large alloca
 ### 0.5 Commit Untracked Files
 
 The following new files should be committed:
+
 - `canal/kernel/loader.go`
 - `canal/kernel/loader_stub.go`
 - `canal/build/targets/esp32s3/domain-linker.ld`

@@ -191,6 +191,7 @@ func espEventLoopCreateDefault() int32
 func espNetifCreateDefaultWifiSta() unsafe.Pointer
 
 // NVS (non-volatile storage) - required for WiFi
+//
 //export nvs_flash_init
 func nvsFlashInit() int32
 

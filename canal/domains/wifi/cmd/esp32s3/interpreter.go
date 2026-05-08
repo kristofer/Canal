@@ -100,7 +100,7 @@ func evalREPLSource(console consoleIO, loader *module.Loader, src string) {
 	vm := bytecode.NewVMWithTranscript(console)
 	vm.SetBlocks(c.GetBlocks())
 	vm.AddGlobals(c.GetGlobals())
-	
+
 	result, err := vm.Run(chunk)
 	if err != nil {
 		console.Println("error: " + err.Error())

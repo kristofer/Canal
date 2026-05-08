@@ -72,12 +72,14 @@ type sockaddrIn struct {
 }
 
 // FreeRTOS - provided by kernel via --just-symbols
+//
 //export vTaskDelay
 func vTaskDelay(xTicksToDelay uint32)
 
 const portMAX_DELAY uint32 = 0xFFFFFFFF
 
 // ESP-IDF WiFi API - provided by kernel via ESP-IDF link
+//
 //export esp_wifi_init
 func espWifiInit(config unsafe.Pointer) int32
 
@@ -100,6 +102,7 @@ func canalWiFiInitDefault() int32
 func canalDomainPsramAlloc(size uint32) unsafe.Pointer
 
 // LwIP socket API - provided by kernel via ESP-IDF link
+//
 //export lwip_socket
 func lwipSocket(domain, typ, protocol int32) int32
 
