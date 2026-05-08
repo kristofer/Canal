@@ -5,6 +5,7 @@
 The WiFi domain is now booting reliably from flash, bringing up TCP, and running picoceci over a network client. Multi-line paste mode is confirmed working in live runs.
 
 ### Confirmed Working
+
 - WiFi domain loads from flash and starts successfully
 - WiFi connects and obtains DHCP address
 - TCP listener accepts client connections
@@ -12,37 +13,42 @@ The WiFi domain is now booting reliably from flash, bringing up TCP, and running
 - Pasted multi-line programs execute successfully
 
 ### Fixes That Unblocked Stability
+
 - Transcript sink wiring for picoceci VM:
-    - WiFi interpreter uses `bytecode.NewVMWithTranscript(console)` so Transcript output is routed to the TCP client writer.
+  - WiFi interpreter uses `bytecode.NewVMWithTranscript(console)` so Transcript output is routed to the TCP client writer.
 - WiFi domain XIP mapping correction:
-    - `WIFI_IROM_ORIGIN` adjusted to `0x42185000` in `canal/Makefile` so linked virtual offsets and flash file offsets map correctly at runtime.
+  - `WIFI_IROM_ORIGIN` adjusted to `0x42185000` in `canal/Makefile` so linked virtual offsets and flash file offsets map correctly at runtime.
 - Kernel boot stack alignment:
-    - Default kernel domain stack reduced to `led,wifi` in `kernel/boot_esp32s3.go` to avoid noisy attempts to load domains not in default flash workflow.
+  - Default kernel domain stack reduced to `led,wifi` in `kernel/boot_esp32s3.go` to avoid noisy attempts to load domains not in default flash workflow.
 - Early startup hardening for TinyGo runtime:
-    - WiFi domain now bootstraps a minimal DRAM heap at entry before early startup/logging paths.
-    - Later allocation path can move to PSRAM.
+  - WiFi domain now bootstraps a minimal DRAM heap at entry before early startup/logging paths.
+  - Later allocation path can move to PSRAM.
 - IP wait-loop short-circuit:
-    - Kernel now retains STA netif pointer and exports it to domains.
-    - WiFi domain polls `esp_netif_get_ip_info` and exits wait loop as soon as IP is assigned.
+  - Kernel now retains STA netif pointer and exports it to domains.
+  - WiFi domain polls `esp_netif_get_ip_info` and exits wait loop as soon as IP is assigned.
 
 ### Integration Notes
+
 - `go.mod` keeps a local replace for picoceci (`=> ../../picoceci`), so runtime behavior follows the local picoceci checkout.
 - Kernel and domain symbol sharing still relies on `--just-symbols` and force-retained IDF symbols in `build/idf-app/CMakeLists.txt`.
 
 ## ✅ What's Been Completed
 
 ### 1. Build System Integration
+
 - **Modified**: [Makefile](canal/Makefile#L14-L20) - Added `WIFI_SSID`, `WIFI_PASSWORD`, `WIFI_PORT` variables
 - **Modified**: [Makefile](canal/Makefile#L177-L185) - WiFi domain build passes credentials via `-X` ldflags
 - **Modified**: [build/idf-app/CMakeLists.txt](canal/build/idf-app/CMakeLists.txt#L10-L24) - Force-linked WiFi and LwIP symbols
 
 ### 2. Kernel WiFi/Network Support
+
 - **Modified**: [kernel/freertos_esp32s3_idf.go](canal/kernel/freertos_esp32s3_idf.go#L124-L174) - Added WiFi and LwIP extern declarations
 - ESP-IDF WiFi functions: `esp_wifi_init`, `esp_wifi_set_mode`, `esp_wifi_set_config`, `esp_wifi_start`, `esp_wifi_connect`
 - LwIP socket functions: `lwip_socket`, `lwip_bind`, `lwip_listen`, `lwip_accept`, `lwip_recv`, `lwip_send`, `lwip_close`, `lwip_setsockopt`, `lwip_fcntl`
 - USB Serial JTAG: `usb_serial_jtag_write_bytes`, `usb_serial_jtag_wait_tx_done`
 
 ### 3. WiFi Domain Implementation
+
 - **Created**: [domains/wifi/cmd/esp32s3/esp_idf.go](canal/domains/wifi/cmd/esp32s3/esp_idf.go) - ESP-IDF API bindings
 - **Created**: [domains/wifi/cmd/esp32s3/network.go](canal/domains/wifi/cmd/esp32s3/network.go) - WiFi connection and TCP server logic
 - **Created**: [domains/wifi/cmd/esp32s3/interpreter.go](canal/domains/wifi/cmd/esp32s3/interpreter.go) - picoceci REPL implementation
@@ -50,6 +56,7 @@ The WiFi domain is now booting reliably from flash, bringing up TCP, and running
 - **Modified**: [domains/wifi/cmd/esp32s3/main.go](canal/domains/wifi/cmd/esp32s3/main.go) - Main orchestration
 
 ### 4. Architecture
+
 ```
 ┌─────────────────────────────────────────┐
 │   Kernel (canal_idf_bridge.elf)        │
@@ -99,7 +106,8 @@ The WiFi domain is now booting reliably from flash, bringing up TCP, and running
 
 The end-to-end TCP interpreter path is now working on-device.
 
-### What's Working:
+### What's Working
+
 - ✅ Kernel initializes ESP-IDF WiFi stack at boot (see [kernel/freertos_esp32s3_idf.go](canal/kernel/freertos_esp32s3_idf.go#L177-L208))
 - ✅ Network interface (netif) created via `esp_netif_init()`
 - ✅ Event loop initialized via `esp_event_loop_create_default()`
@@ -108,6 +116,7 @@ The end-to-end TCP interpreter path is now working on-device.
 - ✅ WiFi domain can call WiFi/socket functions
 
 ### Remaining Follow-ups
+
 - Add event-driven connect completion (instead of periodic polling) if desired
 - Add early boot log ring-buffer path for allocation-free diagnostics
 - Add regression test checklist for domain XIP link-origin consistency
@@ -115,9 +124,11 @@ The end-to-end TCP interpreter path is now working on-device.
 ## 🔧 Next Steps
 
 ### Option 1: Move to Event-Driven IP Ready
+
 Replace the polling short-circuit with an explicit event-group signal from `IP_EVENT_STA_GOT_IP` for faster and cleaner connect readiness.
 
 ### Option 2: Full Implementation
+
 1. Add proper WiFi event handling
 2. Implement DHCP client
 3. Add mDNS for hostname discovery
@@ -125,6 +136,7 @@ Replace the polling short-circuit with an explicit event-group signal from `IP_E
 5. Add proper error handling throughout
 
 ### Option 3: Use Existing ESP-IDF Example
+
 Study ESP-IDF's [station example](https://github.com/espressif/esp-idf/tree/master/examples/wifi/getting_started/station) and port initialization sequence to kernel.
 
 ## 📝 Build & Test Commands
@@ -146,12 +158,14 @@ telnet <device-ip> 2323
 ## 📦 Files Modified/Created
 
 ### Modified
+
 - `canal/Makefile` - Build system integration
 - `canal/build/idf-app/CMakeLists.txt` - Symbol exports
 - `canal/kernel/freertos_esp32s3_idf.go` - API exports
 - `canal/domains/wifi/cmd/esp32s3/main.go` - Orchestration
 
 ### Created
+
 - `canal/domains/wifi/cmd/esp32s3/esp_idf.go` - ESP-IDF bindings (144 lines)
 - `canal/domains/wifi/cmd/esp32s3/network.go` - Networking layer (134 lines)
 - `canal/domains/wifi/cmd/esp32s3/console.go` - TCP console (133 lines)
@@ -160,6 +174,7 @@ telnet <device-ip> 2323
 - `canal/IMPLEMENTATION_STATUS.md` - This file
 
 ## 🎯 What Works Now
+
 - ✅ Build system accepts WiFi credentials
 - ✅ Kernel exports WiFi/network symbols
 - ✅ Domain links against kernel symbols
@@ -168,6 +183,7 @@ telnet <device-ip> 2323
 - ✅ Multi-line paste workflow is operational
 
 ## 🔨 What Still Needs Validation
+
 - ❓ Long-duration soak test for WiFi reconnect behavior
 - ❓ Concurrent logging load while running large pasted programs
 - ❓ Graceful client disconnect/reconnect under repeated cycles

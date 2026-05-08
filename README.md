@@ -30,11 +30,11 @@ make build
 
 # 2) Build + flash default domains (led + wifi), passing WiFi credentials
 make flash-domains \
-	PORT=/dev/cu.usbmodem11201 \
-	DOMAIN_STACK="led wifi" \
-	WIFI_SSID="YOUR_SSID" \
-	WIFI_PASSWORD="YOUR_PASSWORD" \
-	WIFI_PORT=2323
+ PORT=/dev/cu.usbmodem11201 \
+ DOMAIN_STACK="led wifi" \
+ WIFI_SSID="YOUR_SSID" \
+ WIFI_PASSWORD="YOUR_PASSWORD" \
+ WIFI_PORT=2323
 
 # 3) Flash kernel if needed
 make flash PORT=/dev/cu.usbmodem11201
