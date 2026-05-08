@@ -23,6 +23,8 @@ func app_main() {
 	println("\n=== Canal ESP32-S3 ===")
 	println("Boot time:", millis(), "ms")
 
+	initWiFi()
+
 	memoryProtection = hal.NewMemoryProtection()
 	if err := memoryProtection.Init(); err != nil {
 		panic("MMU init failed")
@@ -68,9 +70,10 @@ type domainDef struct {
 // loader. If a partition doesn't contain a valid ELF (e.g. during development
 // before domains are flashed), it falls back to the in-kernel goroutine entry.
 func bootDomains() {
-	// All supported domain names; order determines load priority.
+	// Default boot stack. WiFi domain already embeds picoceci REPL over TCP,
+	// so the standalone picoceci domain is not auto-started by default.
 	// Domains whose flash partitions are empty are silently skipped.
-	domainStack := []string{"led", "wifi", "logger", "picoceci", "tls"}
+	domainStack := []string{"led", "wifi", "logger", "tls"}
 
 	for _, name := range domainStack {
 		def, ok := getDomainBootDef(name)

@@ -15,7 +15,12 @@ TINYGO        ?= tinygo
 TINYGO_TARGET ?= esp32s3-generic
 USE_IDF       ?= 1          # link against ESP-IDF FreeRTOS (required for flash domain loading)
 BAUD          ?= 115200
-DOMAIN_STACK  ?= led wifi logger picoceci tls
+DOMAIN_STACK  ?= led wifi
+ALL_DOMAINS   ?= led wifi logger picoceci sdcard tls
+ERASE_UNUSED  ?= 1
+WIFI_SSID     ?=
+WIFI_PASSWORD ?=
+WIFI_PORT     ?= 2323
 
 KERNEL_DIR  := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))kernel
 DOMAINS_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))domains
@@ -168,12 +173,16 @@ led: _check_tinygo
 
 wifi: _check_tinygo
 	@echo "Building WiFi domain..."
+	@if [ -z "$(WIFI_SSID)" ]; then \
+		echo "Warning: WIFI_SSID not set. Set with: make wifi WIFI_SSID=your_ssid WIFI_PASSWORD=your_password"; \
+	fi
 	$(call build_domain_elf,wifi,$(WIFI_RAM_ORIGIN),$(DOMAIN_RAM_SIZE),$(WIFI_DROM_ORIGIN),$(WIFI_IROM_ORIGIN))
 	cd $(DOMAINS_DIR)/wifi && $(TINYGO) build \
 		-target=$(OUT_DIR)/wifi-target.json \
 		-opt=2 \
+		-gc=leaking \
 		$(EXTRA_TAGS) \
-		$(DOMAIN_LDFLAGS) \
+		-ldflags="$(if $(wildcard $(KERNEL_ELF)),-extldflags='--just-symbols=$(KERNEL_ELF) --allow-multiple-definition' )-X main.wifiSSID=$(WIFI_SSID) -X main.wifiPassword=$(WIFI_PASSWORD) -X main.tcpPort=$(WIFI_PORT)" \
 		-o $(OUT_DIR)/wifi.elf \
 		./cmd/esp32s3
 	@echo "Built: build/out/wifi.elf"
@@ -218,6 +227,25 @@ flash: _check_tinygo _check_port
 
 flash-domains: _check_tinygo _check_port
 	@echo "Building and flashing domains ($(DOMAIN_STACK)) to $(PORT)..."
+	@if [ "$(ERASE_UNUSED)" = "1" ]; then \
+		echo "Erasing unused domain partitions (ALL_DOMAINS=$(ALL_DOMAINS))..."; \
+		for domain in $(ALL_DOMAINS); do \
+			if [[ " $(DOMAIN_STACK) " == *" $$domain "* ]]; then \
+				continue; \
+			fi; \
+			case "$$domain" in \
+				led) addr=$(LED_ADDR) ;; \
+				wifi) addr=$(WIFI_ADDR) ;; \
+				logger) addr=$(LOGGER_ADDR) ;; \
+				picoceci) addr=$(PICOCECI_ADDR) ;; \
+				sdcard) addr=$(SDCARD_ADDR) ;; \
+				tls) addr=$(TLS_ADDR) ;; \
+				*) continue ;; \
+			esac; \
+			echo "  - erasing $$domain at $$addr size $(DOMAIN_PARTITION_SIZE)"; \
+			esptool.py --chip esp32s3 --port $(PORT) erase_region $$addr $(DOMAIN_PARTITION_SIZE) || exit $$?; \
+		done; \
+	fi
 	@for domain in $(DOMAIN_STACK); do \
 		$(MAKE) --no-print-directory flash-$$domain PORT=$(PORT) || exit $$?; \
 	done
@@ -288,7 +316,12 @@ clean:
 # ── picoceci domain ──────────────────────────────────────────────────────────
 
 PICOCECI_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))domains/picoceci
+DOMAIN_PARTITION_SIZE ?= 0x80000
+LED_ADDR ?= 0x100000
+WIFI_ADDR ?= 0x180000
+LOGGER_ADDR ?= 0x200000
 PICOCECI_ADDR ?= 0x280000
+SDCARD_ADDR ?= 0x300000
 TLS_ADDR ?= 0x380000
 
 .PHONY: picoceci picoceci-flash picoceci-run

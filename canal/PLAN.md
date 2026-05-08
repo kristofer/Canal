@@ -155,6 +155,13 @@ CONFIG_SPIRAM_USE_CAPS_ALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
 ```
 
+Also align flash header size with N16R8 hardware to avoid image/header mismatch warnings:
+
+```
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+```
+
 Once enabled, IDF's heap allocator will automatically use PSRAM for large allocations (> 16KB by default). Domain heaps allocated with `make([]byte, heapSize)` will land in PSRAM for `heapSize >= 16KB`.
 
 ### 0.5 Commit Untracked Files

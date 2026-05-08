@@ -158,20 +158,13 @@ func SpawnDomainFromFlash(name string, priority uint8) (DomainID, uint8) {
 
 	spinUnlock(&domainTableLock)
 
-	params := &domainParamsTable[domainID]
-	*params = DomainParams{
-		ID:       domainID,
-		SyscallQ: unsafe.Pointer(syscallQ),
-		ReplyQ:   unsafe.Pointer(replyQ),
-	}
-
 	var taskHandle TaskHandle_t
 	println("[Kernel] Starting domain task", name, "entry:", entryPoint, "prio:", priority)
 	result := BaseType_t(canal_create_task(
 		entryPoint,
 		cstring(name),
 		4096,
-		unsafe.Pointer(params),
+		nil,
 		uint32(priority),
 		&taskHandle,
 	))

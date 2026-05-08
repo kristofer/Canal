@@ -34,3 +34,7 @@ A planned series of articles covering Canal and its companion language
 See **[docs/EDUCATIONAL_PLAN.md](docs/EDUCATIONAL_PLAN.md)** for the full plan,
 including learning objectives, key topics, target audience, and production notes for
 each article.
+
+## Futures
+
+canal probably needs to be able to use the esp32s3 realtime clock. with the wifi stuff coming up, maybe a small shim in canal can do an NTP call and get time of day, set the freertos clock, and then canal can use actual timestamps for console messages. build a plan that can outline what needs to be done to achieve this

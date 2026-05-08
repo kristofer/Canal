@@ -121,9 +121,132 @@ func usbSerialJtagDriverInstall(config *usbSerialJtagDriverConfig) int32
 //export usb_serial_jtag_vfs_use_driver
 func usbSerialJtagVFSUseDriver()
 
+//export usb_serial_jtag_vfs_use_nonblocking
+func usbSerialJtagVFSUseNonblocking()
+
+//export usb_serial_jtag_write_bytes
+func usbSerialJtagWriteBytes(src unsafe.Pointer, size uint32, ticksToWait uint32) int32
+
+//export usb_serial_jtag_wait_tx_done
+func usbSerialJtagWaitTxDone(ticksToWait uint32) int32
+
+// ESP-IDF WiFi API - exported to domains
+//
+//export esp_wifi_init
+func espWifiInit(config unsafe.Pointer) int32
+
+//export esp_wifi_set_mode
+func espWifiSetMode(mode uint32) int32
+
+//export esp_wifi_set_config
+func espWifiSetConfig(interface_ uint32, conf unsafe.Pointer) int32
+
+//export esp_wifi_start
+func espWifiStart() int32
+
+//export esp_wifi_connect
+func espWifiConnect() int32
+
+//export canal_wifi_init_default
+func canalWiFiInitDefault() int32
+
+// LwIP socket API - exported to domains
+//
+//export lwip_socket
+func lwipSocket(domain, typ, protocol int32) int32
+
+//export lwip_bind
+func lwipBind(s int32, name unsafe.Pointer, namelen uint32) int32
+
+//export lwip_listen
+func lwipListen(s int32, backlog int32) int32
+
+//export lwip_accept
+func lwipAccept(s int32, addr unsafe.Pointer, addrlen unsafe.Pointer) int32
+
+//export lwip_recv
+func lwipRecv(s int32, mem unsafe.Pointer, len int32, flags int32) int32
+
+//export lwip_send
+func lwipSend(s int32, dataptr unsafe.Pointer, size int32, flags int32) int32
+
+//export lwip_close
+func lwipClose(s int32) int32
+
+//export lwip_setsockopt
+func lwipSetsockopt(s int32, level, optname int32, optval unsafe.Pointer, optlen uint32) int32
+
+//export lwip_fcntl
+func lwipFcntl(s int32, cmd int32, val int32) int32
+
+// ESP-IDF network interface initialization
+//
+//export esp_netif_init
+func espNetifInit() int32
+
+//export esp_event_loop_create_default
+func espEventLoopCreateDefault() int32
+
+//export esp_netif_create_default_wifi_sta
+func espNetifCreateDefaultWifiSta() unsafe.Pointer
+
+// NVS (non-volatile storage) - required for WiFi
+//export nvs_flash_init
+func nvsFlashInit() int32
+
+//export nvs_flash_erase
+func nvsFlashErase() int32
+
+func initWiFi() {
+	println("[kernel] Initializing WiFi stack...")
+
+	// Initialize NVS (required for WiFi calibration data)
+	ret := nvsFlashInit()
+	if ret != 0 {
+		// NVS partition might be corrupted, try erasing and reinitializing
+		println("[kernel] NVS init failed, erasing...")
+		if nvsFlashErase() == 0 {
+			ret = nvsFlashInit()
+		}
+	}
+	if ret != 0 {
+		println("[kernel] NVS init failed:", ret)
+		return
+	}
+	println("[kernel] NVS initialized")
+
+	// Initialize TCP/IP adapter (netif)
+	if ret := espNetifInit(); ret != 0 {
+		println("[kernel] esp_netif_init failed:", ret)
+		return
+	}
+
+	// Create default event loop
+	if ret := espEventLoopCreateDefault(); ret != 0 {
+		println("[kernel] esp_event_loop_create_default failed:", ret)
+		return
+	}
+
+	// Create default WiFi station interface
+	if netif := espNetifCreateDefaultWifiSta(); netif == nil {
+		println("[kernel] esp_netif_create_default_wifi_sta failed")
+		return
+	}
+
+	// Initialize WiFi driver with ESP-IDF default config.
+	if ret := canalWiFiInitDefault(); ret != 0 {
+		println("[kernel] esp_wifi_init failed:", ret)
+		return
+	}
+	println("[kernel] WiFi driver initialized")
+
+	println("[kernel] WiFi stack initialized (domains can now use WiFi)")
+}
+
 func initUSBSerialJTAGConsole() {
 	if usbSerialJtagIsDriverInstalled() {
 		usbSerialJtagVFSUseDriver()
+		usbSerialJtagVFSUseNonblocking()
 		return
 	}
 
@@ -133,6 +256,7 @@ func initUSBSerialJTAGConsole() {
 	}
 	if usbSerialJtagDriverInstall(&cfg) == 0 {
 		usbSerialJtagVFSUseDriver()
+		usbSerialJtagVFSUseNonblocking()
 	}
 }
 

@@ -1,7 +1,9 @@
 #include <stdint.h>
 #include <string.h>
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "spi_flash_mmap.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/mmu_hal.h"
@@ -139,4 +141,19 @@ int32_t canal_create_task(uint32_t entry,
         priority,
         out_handle,
         tskNO_AFFINITY);
+}
+
+// Initialize WiFi driver with ESP-IDF's canonical default config.
+// This avoids relying on struct layout parity in TinyGo declarations.
+int32_t canal_wifi_init_default(void)
+{
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    return (int32_t)esp_wifi_init(&cfg);
+}
+
+// Allocate a persistent heap region for a domain from PSRAM.
+// Returns NULL if PSRAM allocation is unavailable.
+void *canal_domain_psram_alloc(uint32_t size)
+{
+    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
