@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kristofer/picoceci/pkg/bytecode"
+	"github.com/kristofer/picoceci/pkg/eval"
 	"github.com/kristofer/picoceci/pkg/lexer"
 	"github.com/kristofer/picoceci/pkg/module"
 	"github.com/kristofer/picoceci/pkg/parser"
@@ -23,6 +24,12 @@ func runREPL(console consoleIO) {
 	})
 	module.RegisterBuiltins(resolver)
 	loader := module.NewLoader(resolver)
+
+	// Create persistent VM for this REPL session to maintain globals and closures
+	// Route Transcript output to TCP console so remote user sees Transcript println: output
+	vm := bytecode.NewVMWithSinks(eval.GlobalSinks{
+		TranscriptWriter: console,
+	})
 
 	console.Println("[picoceci] Ready v" + picoceciVersion)
 	console.Println("  tip: type '---' to enter/exit paste mode for multi-line programs")
@@ -58,7 +65,7 @@ func runREPL(console consoleIO) {
 				src := buf.String()
 				buf.Reset()
 				if src != "" {
-					evalREPLSource(console, loader, src)
+					evalREPLSource(console, loader, vm, src)
 				}
 			}
 			continue
@@ -74,11 +81,11 @@ func runREPL(console consoleIO) {
 			continue
 		}
 
-		evalREPLSource(console, loader, line)
+		evalREPLSource(console, loader, vm, line)
 	}
 }
 
-func evalREPLSource(console consoleIO, loader *module.Loader, src string) {
+func evalREPLSource(console consoleIO, loader *module.Loader, vm *bytecode.VM, src string) {
 	// Parse
 	l := lexer.NewString(src)
 	p := parser.New(l)
@@ -88,7 +95,7 @@ func evalREPLSource(console consoleIO, loader *module.Loader, src string) {
 		return
 	}
 
-	// Compile
+	// Compile with fresh compiler (no seeding required)
 	c := bytecode.NewCompilerWithLoader(loader)
 	chunk, err := c.Compile(prog.Statements)
 	if err != nil {
@@ -96,11 +103,16 @@ func evalREPLSource(console consoleIO, loader *module.Loader, src string) {
 		return
 	}
 
-	// Run with fresh VM each time (memory optimization)
-	vm := bytecode.NewVMWithTranscript(console)
-	vm.SetBlocks(c.GetBlocks())
+	// Merge blocks from this compilation into VM and adjust bytecode indices
+	if err := vm.AddBlocksAndAdjustChunk(chunk, c.GetBlocks()); err != nil {
+		console.Println("error: " + err.Error())
+		return
+	}
+
+	// Keep existing globals and add new ones from this compilation
 	vm.AddGlobals(c.GetGlobals())
 
+	// Run the chunk in the persistent VM
 	result, err := vm.Run(chunk)
 	if err != nil {
 		console.Println("error: " + err.Error())
