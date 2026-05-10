@@ -66,6 +66,9 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. when working in picoceci source files, follow the same guidelines but also ensure that the code is valid picoceci syntax and semantics. If you are unsure about how to implement something in picoceci, ask for clarification or refer to the picoceci documentation and examples
+
+Make sure that if you're about to make changes to picoceci source files, just describe what yo htink needs to be done so the user can tell picoceci's agent to consider it all and suggest the changes that will provide what Canal needs to be able to run picoceci on the WiFi domain. This is a critical step because if you make changes to picoceci source files without fully understanding how they work, you might introduce bugs or break existing functionality. By describing your intended changes and asking for clarification, you can ensure that your modifications are aligned with picoceci's design and won't cause unintended consequences. Always prioritize clear communication and understanding when working with complex codebases like picoceci
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
@@ -75,8 +78,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Assume board is ESP32-S3 N16R8 unless user states otherwise.
 - Treat 16MB flash + 8MB PSRAM as canonical hardware.
 - Keep IDF config aligned with hardware:
- 	- `CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y`
- 	- `CONFIG_ESPTOOLPY_FLASHSIZE="16MB"`
- 	- `CONFIG_SPIRAM=y`
- 	- `CONFIG_ESP32S3_SPIRAM_SUPPORT=y`
+  - `CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y`
+  - `CONFIG_ESPTOOLPY_FLASHSIZE="16MB"`
+  - `CONFIG_SPIRAM=y`
+  - `CONFIG_ESP32S3_SPIRAM_SUPPORT=y`
 - If runtime logs show mismatches (for example flash header reports 2MB), fix sdkconfig before debugging higher-level runtime issues.
