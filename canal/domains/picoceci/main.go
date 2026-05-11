@@ -49,10 +49,8 @@ func runPicoceci() {
 	println("[picoceci] Starting v" + version + " (Canal domain)")
 
 	// Set up module resolver
-	// TODO: Use Canal's stdlib/fs for file reading once capabilities are wired
 	resolver := module.NewResolver(func(path string) ([]byte, error) {
-		// For now, return error - will wire to Canal FS capability
-		return nil, errNoFS
+		return ReadFile(path)
 	})
 	module.RegisterBuiltins(resolver)
 	loader := module.NewLoader(resolver)
