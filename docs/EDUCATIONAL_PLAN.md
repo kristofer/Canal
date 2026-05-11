@@ -12,7 +12,7 @@ to serve as a standalone reference.
 | # | Title | Focus |
 |---|-------|-------|
 | 1 | [The ESP32-S3 System: Hardware Meets Software](articles/01-esp32s3-hardware-meets-software.md) | Hardware platform overview |
-| 2 | [picoceci: A Language Built for Tiny Machines](articles/02-picoceci-a-language-for-tiny-machines.md) | Language design and usage |
+| 2 | [picoceci — A Smalltalk-syntax, Go-semantics Language for Microcontrollers](articles/02-picoceci-a-language-for-tiny-machines.md) | Language design, semantics, and MCU workflow |
 | 3 | [Canal and FreeRTOS: Running Go on Bare Metal](articles/03-canal-and-freertos-go-on-bare-metal.md) | OS/runtime architecture |
 | 4 | [picoceci on Canal: Programming the Microkernel](articles/04-picoceci-on-canal-programming-the-microkernel.md) | Integration and capabilities |
 | 5 | [Build a Programming Learning Environment on Canal](articles/05-build-a-programming-learning-environment.md) | End-to-end project tutorial |
@@ -89,13 +89,12 @@ what the chip provides and which parts Canal relies on.
 
 ## Article 2
 
-### picoceci: A Language Built for Tiny Machines
+### picoceci — A Smalltalk-syntax, Go-semantics Language for Microcontrollers
 
 **Summary**
 
-A tour of picoceci—its design philosophy, the languages that influenced it, the features
-that make it distinctive on a microcontroller, and a quick-start guide for writing real
-programs.
+A tour of picoceci's design constraints, its Smalltalk/Go language influences, and the
+runtime features that make it practical for live programming on microcontrollers.
 
 **Target audience**: Developers curious about embedded scripting and language design;
 educators exploring teaching languages.
@@ -113,48 +112,48 @@ experience in any language.
    - Goal: a language that is easy to teach and fun to explore on hardware
 
 2. Influences
-   - Forth: stack discipline, small interpreter, extensibility
-   - Scheme / Lisp: homoiconicity, first-class functions, minimal syntax
-   - Go: channel-based concurrency model
-   - Logo / Smalltalk: learner-friendly, interactive REPL
+   - Smalltalk: message-passing syntax and block-based control flow
+   - Go: structural typing, composition over inheritance, and concurrency semantics
 
 3. Unique features
-   - Compact bytecode representation fits comfortably in flash
-   - First-class channels map directly to Canal's IPC primitives
-   - Hot-loadable definitions without a full OS reboot
+   - Message-passing object model and first-class blocks
+   - Structural typing and composition-based object design
+   - Deterministic memory model (reference counting / arena-style behaviour)
    - Interactive REPL over serial/USB for live exploration
-   - Deterministic memory: static arena or region-based allocation
+   - FreeRTOS-backed tasks, queues, semaphores, and channels exposed in-language
 
 4. Language walkthrough
-   - Values and types (numbers, booleans, symbols, lists, channels)
-   - Defining words / functions
-   - Control flow
-   - Talking to hardware (GPIO, timers) through Canal capabilities
-   - Sending and receiving on channels
+   - Variables, assignment, and value types
+   - Blocks and control flow via message sends
+   - Defining objects, methods, and composition
+   - Talking to hardware through Canal capabilities
+   - Concurrency patterns with tasks, queues, and channels
 
 5. Running picoceci on the MCU
-   - Flashing the interpreter binary
+   - Building and flashing via Canal make targets
    - Connecting to the REPL (USB serial)
-   - Writing and loading a first program
+   - Writing and running first interactive programs
 
 **Exercises**
 
-1. picoceci draws design ideas from Forth, Scheme, Go, and Logo. Choose any two of those
-   languages and write a short paragraph for each explaining which specific picoceci
-   feature reflects that influence and why the designers likely borrowed it.
+1. picoceci takes its syntax from Smalltalk and its object semantics from Go. Choose one
+   feature from each language and explain why that pairing fits an embedded scripting
+   language on a microcontroller.
 
 2. Open (or imagine) a picoceci REPL session. Write a short program that:
-   - Defines a function called `square` that returns the square of its argument.
-   - Uses `square` inside a loop to print the squares of 1 through 5.
+   - Defines an `Accumulator` object with `add:` and `total` methods.
+   - Creates an instance, adds 1 through 5 using a `to:do:` loop, and prints the total.
    Label each line with a comment explaining what it does.
 
-3. picoceci uses "deterministic memory" (static arena or region-based allocation).
-   Compare this to garbage collection: list one benefit and one drawback of each
-   approach in the context of a microcontroller with 512 KB of RAM.
+3. picoceci uses `compose` instead of class inheritance. Explain what this changes for
+   behaviour reuse compared with an inheritance-based design.
 
-4. Explain what "hot-loadable definitions" means in the context of picoceci. Describe a
-   practical development scenario where being able to redefine a function without
-   rebooting the board would save significant time.
+4. Describe the difference between `Queue` and `Channel` in picoceci, and give one
+   scenario where each is the better fit.
+
+5. picoceci avoids a stop-the-world GC, using reference counting or arena allocation
+   instead. List one benefit and one drawback of each approach for a real-time
+   sensor-polling task.
 
 ---
 
