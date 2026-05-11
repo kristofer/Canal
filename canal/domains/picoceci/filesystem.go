@@ -2,48 +2,37 @@
 
 package main
 
+import "stdlib/fs"
+
 // Filesystem adapter for picoceci running as a Canal domain.
 //
 // This bridges picoceci's module loader to Canal's capability-based
-// filesystem. Currently a stub until Canal's sdcard domain is complete.
-//
-// TODO: Wire to stdlib/fs once Canal's filesystem capabilities are ready:
-//   - Request "fs:/sdcard" capability
-//   - Use capability to read module files
-//   - Integrate with picoceci module.Resolver
+// filesystem client so imports can be served by the SD card service.
+// Callers should treat returned errors as service or media failures and
+// surface them to the REPL or module loader instead of silently ignoring them.
 
-// ReadFile reads a file from the filesystem via Canal capabilities.
-// Currently returns an error as Canal's FS is still being implemented.
 func ReadFile(path string) ([]byte, error) {
-	// TODO: Implement using Canal stdlib/fs:
-	//
-	// f, err := fs.Open(path)
-	// if err != nil {
-	//     return nil, err
-	// }
-	// defer f.Close()
-	//
-	// buf := make([]byte, 4096)
-	// n, err := f.Read(buf)
-	// if err != nil {
-	//     return nil, err
-	// }
-	// return buf[:n], nil
-
-	println("[picoceci] ReadFile: " + path + " (not yet implemented)")
-	return nil, errNoFS
+	return fs.ReadFile(path)
 }
 
-// FileExists checks if a file exists.
-// Currently always returns false.
 func FileExists(path string) bool {
-	// TODO: Implement using Canal capabilities
-	return false
+	info, err := fs.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.Exists
 }
 
-// ListDir lists files in a directory.
-// Currently returns empty.
 func ListDir(path string) ([]string, error) {
-	// TODO: Implement using Canal capabilities
-	return nil, errNoFS
+	items, err := fs.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, item.Name)
+	}
+
+	return names, nil
 }
