@@ -9,57 +9,43 @@ import (
 // connectToWiFi initializes WiFi and connects to the specified AP
 func connectToWiFi(ssid, password string) bool {
 	// Note: esp_wifi_init is now called by kernel during boot
-	println("[WiFi] connectToWiFi begin")
 	vTaskDelay(20)
 
-	println("[WiFi] Step 1: esp_wifi_set_mode")
 	// Set station mode
 	ret := espWifiSetMode(WIFI_MODE_STA)
 	if ret == ESP_ERR_WIFI_NOT_INIT {
-		println("[WiFi] WiFi not initialized, attempting default init")
 		initRet := canalWiFiInitDefault()
-		println("[WiFi] canal_wifi_init_default returned:", initRet)
 		if initRet == 0 {
 			ret = espWifiSetMode(WIFI_MODE_STA)
-			println("[WiFi] esp_wifi_set_mode retry returned:", ret)
 		}
 	}
-	println("[WiFi] esp_wifi_set_mode returned:", ret)
 	if ret != 0 {
 		println("[WiFi] Failed to set mode")
 		return false
 	}
 
-	println("[WiFi] Step 2: Preparing config")
 	// Configure WiFi credentials
 	var config wifiConfigT
 	copy(config.ssid[:], ssid)
 	copy(config.password[:], password)
 
-	println("[WiFi] Step 3: esp_wifi_set_config")
 	ret = espWifiSetConfig(WIFI_IF_STA, unsafe.Pointer(&config))
-	println("[WiFi] esp_wifi_set_config returned:", ret)
 	if ret != 0 {
 		println("[WiFi] Failed to set config")
 		return false
 	}
 	vTaskDelay(1)
 
-	println("[WiFi] Step 4: esp_wifi_start")
 	// Start WiFi
 	ret = espWifiStart()
-	println("[WiFi] esp_wifi_start returned:", ret)
 	if ret != 0 {
 		println("[WiFi] Failed to start")
 		return false
 	}
 	vTaskDelay(1)
 
-	println("[WiFi] Step 5: esp_wifi_connect to", ssid)
-
 	// Connect to AP
 	ret = espWifiConnect()
-	println("[WiFi] esp_wifi_connect returned:", ret)
 	if ret != 0 {
 		println("[WiFi] Failed to connect")
 		return false
@@ -67,7 +53,6 @@ func connectToWiFi(ssid, password string) bool {
 	vTaskDelay(1)
 
 	// Wait for DHCP/IP assignment and stop as soon as a non-zero address appears.
-	println("[WiFi] Step 6: Waiting for IP address (10 seconds)...")
 	netif := canalWiFiStaNetif()
 	if netif == nil {
 		println("[WiFi] STA netif unavailable")
@@ -76,13 +61,9 @@ func connectToWiFi(ssid, password string) bool {
 	for i := 0; i < 100; i++ {
 		var ipInfo espNetifIPInfo
 		if espNetifGetIPInfo(netif, unsafe.Pointer(&ipInfo)) == 0 && ipInfo.ip.addr != 0 {
-			println("[WiFi] Got IP address")
 			return true
 		}
 		vTaskDelay(100) // Wait 100ms
-		if i%10 == 0 {
-			println("[WiFi] Still waiting... (", i/10, "seconds)")
-		}
 	}
 
 	println("[WiFi] Timed out waiting for IP address")

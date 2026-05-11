@@ -16,17 +16,18 @@ var domainMode bool
 //export domain_entry
 func domain_entry(param unsafe.Pointer) {
 	domainMode = true
-	var domainID uint16
-	if param != nil {
-		domainID = *(*uint16)(param)
-	}
-	println("[LED] Domain", domainID, "starting from flash")
+	_ = param
 	runLED()
+	for {
+		vTaskDelay(portMAX_DELAY)
+	}
 }
 
 func main() {
-	println("[LED] Standalone start")
 	runLED()
+	for {
+		vTaskDelay(portMAX_DELAY)
+	}
 }
 
 func runLED() {
@@ -38,17 +39,12 @@ func runLED() {
 		SDI:       machine.NoPin,
 	})
 	if err != nil {
-		println("[LED] SPI error:", err.Error())
-		// Park gracefully so the task doesn't exit and crash FreeRTOS.
-		for {
-			vTaskDelay(portMAX_DELAY)
-		}
+		_ = err
+		return
 	}
 
-	println("[LED] Cycling colors")
-
 	// Alternate blue/white twice for a blinking effect, then orange, violet, off.
-	colors := [][3]uint8{
+	colors := [8][3]uint8{
 		{0, 0, 255},    // blue
 		{253, 218, 13}, // yellow (blink 1)
 		{0, 0, 255},    // blue
@@ -63,9 +59,6 @@ func runLED() {
 		c := colors[i%len(colors)]
 		ws2812Write(c[0], c[1], c[2])
 		i++
-		if i%8 == 0 {
-			println("[LED] alive, step:", i)
-		}
 		vTaskDelay(750) // 750 ms between color changes
 	}
 }

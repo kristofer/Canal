@@ -33,6 +33,8 @@ $(OUT_DIR):
 kernel: $(OUT_DIR)
 ifeq ($(USE_IDF_FREERTOS),1)
 	@echo "Building kernel via ESP-IDF..."
+	cp -f sdkconfig.esp32s3 idf-app/sdkconfig
+	cp -f partitions.csv idf-app/partitions.csv
 	cd idf-app && $(IDF_EXPORT) idf.py build
 	cp -f idf-app/build/canal_idf_bridge.elf $(OUT_DIR)/kernel.elf
 	cp -f idf-app/build/canal_idf_bridge.bin $(OUT_DIR)/kernel.bin

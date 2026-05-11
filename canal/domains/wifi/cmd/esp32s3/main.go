@@ -25,52 +25,41 @@ func domain_entry(param unsafe.Pointer) {
 	initDomainHeapEarly()
 	heapInitialized = true
 
-	// Keep entry path minimal after heap bootstrap.
-	println("[WiFi] Domain entry called")
-
 	domainMode = true
 	_ = param // Use param to avoid unused warning
+	_ = runWiFi()
 
-	println("[WiFi] About to start runWiFi")
-	runWiFi()
+	// If runWiFi ever returns, park safely instead of executing fallthrough bytes.
+	for {
+		vTaskDelay(portMAX_DELAY)
+	}
 }
 
 func main() {
 	logToSerialLine("[WiFi] Standalone start")
-	runWiFi()
+	_ = runWiFi()
+	for {
+		vTaskDelay(portMAX_DELAY)
+	}
 }
 
-func runWiFi() {
+func runWiFi() bool {
 	ssid := safeCfgString(wifiSSID)
 	password := safeCfgString(wifiPassword)
 	portCfg := safeCfgString(tcpPort)
-	build := safeCfgString(wifiDomainBuild)
-
-	println("[WiFi] runWiFi started")
-	println("[WiFi] Build:", build)
+	_ = safeCfgString(wifiDomainBuild)
 
 	// Check if WiFi credentials are configured
 	if ssid == "" {
 		println("[WiFi] ERROR: WiFi SSID not configured")
-		println("[WiFi] Parking domain...")
-		for {
-			vTaskDelay(portMAX_DELAY)
-		}
+		return false
 	}
 
-	println("[WiFi] SSID configured, about to connect")
-
-	// Connect to WiFi with detailed logging
-	println("[WiFi] Calling connectToWiFi...")
+	// Connect to WiFi
 	if !connectToWiFi(ssid, password) {
 		println("[WiFi] Failed to connect, parking domain...")
-		for {
-			vTaskDelay(1000)
-			println("[WiFi] (parked after failed connect)")
-		}
+		return false
 	}
-
-	println("[WiFi] WiFi connected! Setting up TCP server...")
 
 	// Parse TCP port
 	port := uint16(2323)
@@ -81,10 +70,8 @@ func runWiFi() {
 	// Create TCP server
 	serverFd := createTCPServer(port)
 	if serverFd < 0 {
-		logToSerialLine("[WiFi] Failed to create server, parking domain...")
-		for {
-			vTaskDelay(portMAX_DELAY)
-		}
+		logToSerialLine("[WiFi] Failed to create server")
+		return false
 	}
 
 	logToSerialLine("[WiFi] Ready! Connect with: telnet <device-ip> " + itoa(int(port)))
@@ -116,6 +103,9 @@ func runWiFi() {
 		lwipClose(clientFd)
 		logToSerialLine("[TCP] Client disconnected")
 	}
+
+	// Unreachable in normal operation.
+	return true
 }
 
 type stringHeader struct {
