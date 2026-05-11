@@ -13,9 +13,12 @@ type File struct {
 	mode   OpenMode
 }
 
+// fsOperationTimeoutTicks waits up to 10s for the SD card service (1 tick = 1 ms).
+const fsOperationTimeoutTicks = 10000
+
 var (
-	serviceCap    runtime.CapHandle
-	serviceRights uint32
+	readServiceCap      runtime.CapHandle
+	readWriteServiceCap runtime.CapHandle
 )
 
 func Open(path string) (*File, error) {
@@ -59,11 +62,11 @@ func ReadFile(path string) ([]byte, error) {
 		if n > 0 {
 			out = append(out, buf[:n]...)
 		}
-		if readErr != nil {
+		if n == 0 {
 			return out, readErr
 		}
-		if n == 0 {
-			return out, nil
+		if readErr != nil {
+			return out, readErr
 		}
 	}
 }
@@ -246,20 +249,21 @@ func doRequest(op operation, rights uint32, req unsafe.Pointer, reqSize uintptr,
 	if replyQ == nil {
 		return errQueueCreate
 	}
+	defer kernel.xQueueDelete(replyQ)
 
 	var msg message
 	msg.Op = op
 	msg.ReplyQ = uint32(uintptr(unsafe.Pointer(replyQ)))
 	if req != nil && reqSize > 0 {
 		size := int(reqSize)
-		copy(msg.Payload[:], (*[fsPayloadSize]byte)(req)[:size:size])
+		copy(msg.Payload[:], unsafe.Slice((*byte)(req), size))
 	}
 
 	if err := runtime.CapSendRaw(cap, unsafe.Pointer(&msg), unsafe.Sizeof(msg)); err != nil {
 		return err
 	}
 
-	if kernel.xQueueReceive(replyQ, resp, 10000) != kernel.pdTRUE {
+	if kernel.xQueueReceive(replyQ, resp, fsOperationTimeoutTicks) != kernel.pdTRUE {
 		return errTimeout
 	}
 
@@ -267,17 +271,28 @@ func doRequest(op operation, rights uint32, req unsafe.Pointer, reqSize uintptr,
 }
 
 func ensureServiceCap(rights uint32) (runtime.CapHandle, error) {
-	if serviceCap != 0 && (serviceRights&rights) == rights {
-		return serviceCap, nil
+	if rights&runtime.RightWrite != 0 {
+		if readWriteServiceCap != 0 {
+			return readWriteServiceCap, nil
+		}
+		cap, err := runtime.RequestCap("service:fs", runtime.RightReadWrite)
+		if err != nil {
+			return 0, err
+		}
+		readWriteServiceCap = cap
+		return cap, nil
 	}
 
-	cap, err := runtime.RequestCap("service:fs", rights)
+	if readServiceCap != 0 {
+		return readServiceCap, nil
+	}
+
+	cap, err := runtime.RequestCap("service:fs", runtime.RightRead)
 	if err != nil {
 		return 0, err
 	}
 
-	serviceCap = cap
-	serviceRights = rights
+	readServiceCap = cap
 	return cap, nil
 }
 

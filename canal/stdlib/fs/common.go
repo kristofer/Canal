@@ -149,11 +149,16 @@ func cleanPath(name string) string {
 }
 
 func copyPath(dst []byte, name string) {
-	cleaned := cleanPath(name)
-	copy(dst, cleaned)
-	if len(dst) > 0 {
-		dst[len(dst)-1] = 0
+	if len(dst) == 0 {
+		return
 	}
+	cleaned := cleanPath(name)
+	n := copy(dst, cleaned)
+	if n >= len(dst) {
+		dst[len(dst)-1] = 0
+		return
+	}
+	dst[n] = 0
 }
 
 func trimNull(b []byte) string {

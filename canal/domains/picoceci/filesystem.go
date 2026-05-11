@@ -8,6 +8,8 @@ import "stdlib/fs"
 //
 // This bridges picoceci's module loader to Canal's capability-based
 // filesystem client so imports can be served by the SD card service.
+// Callers should treat returned errors as service or media failures and
+// surface them to the REPL or module loader instead of silently ignoring them.
 
 func ReadFile(path string) ([]byte, error) {
 	return fs.ReadFile(path)

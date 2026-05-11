@@ -64,6 +64,8 @@ func xQueueReceive(xQueue QueueHandle_t, pvBuffer unsafe.Pointer, xTicksToWait u
 	return pdTRUE
 }
 
+func xQueueDelete(xQueue QueueHandle_t) {}
+
 func xPortGetFreeHeapSize() uint32 {
 	return 128 * 1024
 }

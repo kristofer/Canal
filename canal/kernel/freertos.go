@@ -67,6 +67,13 @@ func xQueueReceive(
 	xTicksToWait uint32,
 ) BaseType_t
 
+//export vQueueDelete
+func vQueueDelete(xQueue QueueHandle_t)
+
+func xQueueDelete(xQueue QueueHandle_t) {
+	vQueueDelete(xQueue)
+}
+
 //export xPortGetFreeHeapSize
 func xPortGetFreeHeapSize() uint32
 

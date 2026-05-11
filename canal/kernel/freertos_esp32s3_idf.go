@@ -107,6 +107,13 @@ func xQueueSend(xQueue QueueHandle_t, pvItemToQueue unsafe.Pointer, xTicksToWait
 //export xQueueReceive
 func xQueueReceive(xQueue QueueHandle_t, pvBuffer unsafe.Pointer, xTicksToWait uint32) BaseType_t
 
+//export vQueueDelete
+func vQueueDelete(xQueue QueueHandle_t)
+
+func xQueueDelete(xQueue QueueHandle_t) {
+	vQueueDelete(xQueue)
+}
+
 //export xPortGetFreeHeapSize
 func xPortGetFreeHeapSize() uint32
 
