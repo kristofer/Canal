@@ -11,7 +11,7 @@ type queueHandle unsafe.Pointer
 type baseType int32
 
 const (
-	pdTRUE   baseType = 1
+	pdTRUE    baseType = 1
 	qSendBack baseType = 0
 )
 

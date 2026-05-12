@@ -27,11 +27,11 @@ const (
 	fsModeCreate   uint8 = 1 << 2
 	fsModeTruncate uint8 = 1 << 4
 
-	fsMaxPathLen    = 192
-	fsMaxChunkSize  = 224
-	fsMaxListItems  = 16
-	fsPayloadSize   = 512
-	fsTimeoutTicks  = 10000
+	fsMaxPathLen   = 192
+	fsMaxChunkSize = 224
+	fsMaxListItems = 16
+	fsPayloadSize  = 512
+	fsTimeoutTicks = 10000
 
 	fsOpOpen fsOperation = iota
 	fsOpClose

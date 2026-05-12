@@ -36,6 +36,7 @@ Replace the local in-memory shim with real `service:fs` operations so WiFi picoc
    - `capRecv(capID, ptr, len)`
 
 Verification:
+
 - A smoke function in WiFi domain can request `service:fs` and returns success/failure deterministically.
 
 ## Phase 2: Shared FS Protocol Layer for WiFi Domain
@@ -49,6 +50,7 @@ Verification:
    - wait for response via reply queue with timeout
 
 Verification:
+
 - Unit-style in-domain checks for encode/decode and response parsing.
 
 ## Phase 3: Replace Local FS Shim with Real `service:fs` Calls
@@ -62,6 +64,7 @@ Verification:
 3. Make `readModuleFromFS(path)` call real FS read path.
 
 Verification:
+
 - In WiFi REPL:
   - `fs := Canal capability: #fsRead.`
   - `fs list: '/'.`
@@ -76,6 +79,7 @@ Verification:
 4. Add deterministic logging for capability request failures.
 
 Verification:
+
 - Boot logs show SD service ready before WiFi REPL accepts clients.
 - WiFi REPL FS operations succeed without fallback shim.
 
@@ -90,5 +94,6 @@ Verification:
 3. Add small picoceci integration scripts under `domains/sdcard/` for regression checks.
 
 Verification:
+
 - Build passes (`make build`, `make wifi`).
 - Manual REPL script passes read/list/write scenarios on real SD card.
