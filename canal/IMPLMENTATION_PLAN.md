@@ -1,99 +1,93 @@
-# WiFi Picoceci FS Bridge Implementation Plan
+# Capability Removal Plan (Channel-First Canal)
 
-## Current State
+## Problem
 
-- WiFi picoceci REPL now has a minimal local capability shim:
-  - `Canal capability: #fsRead`
-  - `Canal capability: #fsWrite`
-  - `fs list:`
-  - `fs readFile:`
-  - `fs writeFile:data:`
-  - `fs exists:`
-- The resolver in `domains/wifi/cmd/esp32s3/interpreter.go` now calls `readModuleFromFS(...)`.
-- `readModuleFromFS(...)` is currently backed by a local in-memory FS shim in `domains/wifi/cmd/esp32s3/canal_globals.go`.
+Capabilities currently add complexity without strong enforcement value in the present
+Canal architecture. The implementation also has split paths (kernel capability table,
+runtime capability API, and domain-local shims), which slows down getting a reliable
+picoceci-on-WiFi workflow.
 
-## Goal
+## Current Gaps to Resolve First
 
-Replace the local in-memory shim with real `service:fs` operations so WiFi picoceci reads and writes through the SD card domain using Canal capabilities.
+1. `runtime/cap.go` still has partial/stub behavior (`marshal`/`unmarshal` TODO path),
+   so only some capability flows are practical.
+2. `kernel/syscall.go` capability lookup is still simplified and not service-complete.
+3. WiFi has a domain-local capability shim (`domains/wifi/cmd/esp32s3/capability_shim.go`),
+   which duplicates syscall contracts and creates another maintenance surface.
+4. picoceci FS access is still described and structured around capability acquisition.
 
-## Phase 1: Domain-Local Capability Shim (Kernel Syscall Bridge)
+## Target Architecture (Post-Removal)
 
-1. Add a tiny WiFi-domain syscall shim package or file:
-   - Parse `domain_entry` task parameter as kernel `DomainParams`.
-   - Capture `DomainID`, `SyscallQ`, and `ReplyQ`.
-2. Mirror minimal syscall structs/constants locally in WiFi domain:
-   - `SyscallRequest`, `SyscallResponse`
-   - `SysCapRequest`, `SysCapSend`, `SysCapRecv`
-   - `ErrNone`, `RightRead`, `RightWrite`
-3. Bind to queue symbols directly in WiFi domain:
-   - `xQueueGenericSend`
-   - `xQueueReceive`
-   - `xQueueGenericCreate`
-   - `vQueueDelete`
-4. Implement local capability helpers:
-   - `capRequest(name, rights) -> capID`
-   - `capSend(capID, ptr, len)`
-   - `capRecv(capID, ptr, len)`
+- Keep domain isolation and queue-based IPC.
+- Replace user-facing capability acquisition with explicit service channels:
+  - `service.Open("fs")`, `service.Open("wifi")`, etc.
+- Enforce access by static wiring + boot policy (which domains get which service handles),
+  not by dynamic grant/revoke semantics.
+- Keep message protocols unchanged where possible to minimize risk.
 
-Verification:
+## Phased Execution Plan
 
-- A smoke function in WiFi domain can request `service:fs` and returns success/failure deterministically.
+### Phase 1 — Introduce Service Handle API (No Behavior Break)
 
-## Phase 2: Shared FS Protocol Layer for WiFi Domain
+1. Add a channel-first runtime API that opens named services directly.
+2. Internally map existing stdlib clients (`stdlib/fs`, `stdlib/wifi`, `stdlib/tls`) to
+   the new API.
+3. Keep compatibility wrappers for existing capability calls so old code still builds.
 
-1. Extract/copy protocol structs/constants from `stdlib/fs/common.go` to a WiFi-local protocol file:
-   - message envelope, op codes, payload structs, limits.
-2. Keep this protocol layer free of `runtime` and `kernel` package imports.
-3. Implement request helper:
-   - create temporary reply queue
-   - send FS message through `capSend`
-   - wait for response via reply queue with timeout
+Exit criteria:
 
-Verification:
+- Existing demos build and run unchanged.
+- `stdlib/*` no longer depend on new capability requests for core operations.
 
-- Unit-style in-domain checks for encode/decode and response parsing.
+### Phase 2 — Replace Domain-Local Capability Shims
 
-## Phase 3: Replace Local FS Shim with Real `service:fs` Calls
+1. Remove WiFi domain capability shim usage and switch to service handle API.
+2. Keep WiFi picoceci selectors (`fs list:`, `fs readFile:`, etc.) unchanged.
+3. Route `readModuleFromFS(...)` through the same service-handle-backed FS path.
 
-1. In `canal_globals.go`, replace local file operations:
-   - `list:` -> `OpList`
-   - `readFile:` -> `OpOpen + OpRead + OpClose`
-   - `writeFile:data:` -> `OpOpen + OpWrite + OpSync + OpClose`
-   - `exists:` -> `OpStat`
-2. Keep method selectors and object model unchanged so picoceci scripts continue to work.
-3. Make `readModuleFromFS(path)` call real FS read path.
+Exit criteria:
 
-Verification:
+- No domain-local capability syscall mirror remains for WiFi.
+- FS operations in WiFi picoceci path use one shared service access path.
 
-- In WiFi REPL:
-  - `fs := Canal capability: #fsRead.`
-  - `fs list: '/'.`
-  - `fs readFile: '/path'.`
-  - write/read round-trip with `#fsWrite`.
+### Phase 3 — Kernel Simplification
 
-## Phase 4: Kernel and SD Service Alignment
+1. Replace dynamic capability request/grant/revoke flow with service registry + channel
+   lookup only.
+2. Remove capability-rights branching that is no longer used by callers.
+3. Keep queue IPC send/recv implementation and domain reply queues intact.
 
-1. Confirm `service:fs` request path in kernel capability lookup is fully wired for requestors.
-2. Keep SD domain boot order before WiFi (`sdcard`, then `wifi`).
-3. Validate SD domain ACL grants for WiFi domain IDs.
-4. Add deterministic logging for capability request failures.
+Exit criteria:
 
-Verification:
+- Kernel syscall surface is service/channel oriented.
+- `CapGrant`/`CapRevoke` path is removed or fully deprecated behind compatibility gates.
 
-- Boot logs show SD service ready before WiFi REPL accepts clients.
-- WiFi REPL FS operations succeed without fallback shim.
+### Phase 4 — Picoceci Fast Path Completion
 
-## Phase 5: Cleanup and Hardening
+1. Ensure boot order guarantees providers before consumers (`sdcard` before WiFi/picoceci
+   consumers).
+2. Make service-open failures deterministic and visible in console logs.
+3. Validate the known-good flow: boot, WiFi connect, TCP REPL, module import from FS.
 
-1. Remove local in-memory FS fallback from WiFi shim.
-2. Add clear error mapping for:
-   - permission denied
-   - not found
-   - timeout
-   - service unavailable
-3. Add small picoceci integration scripts under `domains/sdcard/` for regression checks.
+Exit criteria:
 
-Verification:
+- Running picoceci over WiFi no longer depends on capability-specific setup.
+- End-to-end script load + file read/write works on device.
 
-- Build passes (`make build`, `make wifi`).
-- Manual REPL script passes read/list/write scenarios on real SD card.
+### Phase 5 — Cleanup + Documentation
+
+1. Remove remaining capability-centric language from runtime/stdlib/domain docs.
+2. Keep one migration note for old scripts and APIs.
+3. Update educational material to focus on task/channel model.
+
+Exit criteria:
+
+- Repository docs reflect channels/services as the primary model.
+- Capability model is clearly marked removed/deprecated.
+
+## Risk Controls
+
+- Do not change message wire formats unless required.
+- Keep backward-compatible wrappers until Phase 4 validation is complete.
+- Validate on-device after each phase (`make build`, domain build targets, and REPL smoke
+  checks).
