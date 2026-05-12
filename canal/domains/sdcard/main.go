@@ -38,6 +38,11 @@ func main() {
     println("[SDCard] Filesystem mounted")
 
     // Set up permissions
+    // WiFi domain (typically ID 2 when SD card boots first) can read root.
+    // Also allow ID 1 for setups where boot ordering differs.
+    sdcard.addPermission(1, "/", true, false, false, false)
+    sdcard.addPermission(2, "/", true, false, false, false)
+
     // Logger domain: can write to /logs
     sdcard.addPermission(3, "/logs", true, true, true, false)
 

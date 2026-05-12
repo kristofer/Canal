@@ -1,0 +1,14 @@
+"sd_list_test.pc"
+| fs: Any entries: Any |
+
+Console println: 'SD test: request fs capability'.
+
+"Ask Canal for filesystem capability (service:fs behind the scenes)"
+fs := Canal capability: #fsRead.
+
+Console println: 'Listing / ...'.
+entries := fs list: '/'.
+
+entries do: [ :e |
+    Console println: e printString
+].

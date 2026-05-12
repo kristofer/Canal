@@ -19,8 +19,7 @@ const picoceciVersion = "0.1.0-dev"
 func runREPL(console consoleIO) {
 	// Set up module resolver
 	resolver := module.NewResolver(func(path string) ([]byte, error) {
-		// For now, return error - will wire to Canal FS capability
-		return nil, errNoFS
+		return readModuleFromFS(path)
 	})
 	module.RegisterBuiltins(resolver)
 	loader := module.NewLoader(resolver)
@@ -30,6 +29,7 @@ func runREPL(console consoleIO) {
 	vm := bytecode.NewVMWithSinks(eval.GlobalSinks{
 		TranscriptWriter: console,
 	})
+	installCanalGlobals(vm)
 
 	console.Println("[picoceci] Ready v" + picoceciVersion)
 	console.Println("  tip: type '---' to enter/exit paste mode for multi-line programs")
@@ -124,13 +124,6 @@ func evalREPLSource(console consoleIO, loader *module.Loader, vm *bytecode.VM, s
 		console.Println("=> " + result.PrintString())
 	}
 }
-
-// Error types
-type fsError struct{}
-
-func (fsError) Error() string { return "filesystem not available" }
-
-var errNoFS = fsError{}
 
 type eofError struct{}
 

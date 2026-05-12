@@ -1,0 +1,20 @@
+"sd_list_test_message_style.pc"
+| fs: Any resp: Any entries: Any |
+
+fs := Canal capability: #fsRead.
+
+fs send: (object {
+    op := #list.
+    path := '/'.
+}).
+
+resp := fs receive: 64.
+
+(resp success)
+    ifTrue: [
+        entries := resp items.
+        entries do: [ :e | Console println: e printString ].
+    ]
+    ifFalse: [
+        Console println: 'list failed'.
+    ].

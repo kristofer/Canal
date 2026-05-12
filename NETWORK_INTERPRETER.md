@@ -4,7 +4,7 @@ The WiFi domain now hosts a network-accessible picoceci interpreter, allowing yo
 
 ## Features
 
-- **TCP Shell Access**: Connect to picoceci interpreter over WiFi using telnet or similar
+- **TCP Shell Access**: Connect to picoceci interpreter over WiFi using nc (netcat) or similar
 - **WiFi Configuration**: SSID and password configured at build time via environment variables
 - **Logging Separation**: USB Serial/JTAG now dedicated to logging messages only
 - **Network I/O**: Full REPL interaction over TCP socket with line editing support
@@ -41,14 +41,19 @@ make flash-wifi WIFI_SSID=YourNetworkName WIFI_PASSWORD=YourPassword WIFI_PORT=2
 
 1. **Flash the WiFi domain** with your credentials
 2. **Monitor the serial output** to see the assigned IP address:
+
    ```bash
    make monitor
    ```
-3. **Connect via telnet** from your computer:
+
+3. **Connect via nc (netcat)** from your computer:
+
    ```bash
-   telnet <device-ip> 2323
+   nc <device-ip> 2323
    ```
+
    Or use netcat:
+
    ```bash
    nc <device-ip> 2323
    ```
@@ -65,7 +70,7 @@ $ make monitor
 [WiFi] Connected!
 [TCP] Creating server socket...
 [TCP] Server listening on port 2323
-[WiFi] Ready! Connect with: telnet 192.168.1.100 2323
+[WiFi] Ready! Connect with: nc 192.168.1.100 2323
 [WiFi] USB serial is now for logging only
 [TCP] Waiting for client connection...
 ```
@@ -73,7 +78,7 @@ $ make monitor
 Then from another terminal:
 
 ```
-$ telnet 192.168.1.100 2323
+$ nc (netcat) 192.168.1.100 2323
 Trying 192.168.1.100...
 Connected to 192.168.1.100.
 Escape character is '^]'.
@@ -109,16 +114,19 @@ The implementation merges the picoceci interpreter into the WiFi domain:
 ## Troubleshooting
 
 **WiFi won't connect:**
+
 - Check SSID and password are correct
 - Ensure your network is 2.4GHz (ESP32-S3 doesn't support 5GHz)
 - Check serial monitor for error messages
 
-**Can't connect via telnet:**
+**Can't connect via nc (netcat):**
+
 - Verify device IP address from serial monitor
 - Ensure device and computer are on same network
 - Check firewall settings
 
 **Connection drops:**
+
 - WiFi signal strength may be weak
 - Try moving device closer to access point
 - Check router logs

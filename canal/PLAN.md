@@ -326,7 +326,7 @@ The WiFi domain exposes one capability: `wifi.socket.tcp.listen`. Other domains 
 func domain_entry(params *DomainParams) {
     // Get socket listen capability from WiFi domain
     listenCap := SyscallCapRequest("wifi.socket.tcp.listen")
-    fd := socketListen(listenCap, 23)  // port 23 = telnet-style
+    fd := socketListen(listenCap, 23)  // port 23 = nc (netcat)-style
 
     for {
         connFd := socketAccept(fd)
@@ -576,7 +576,7 @@ Dependency enforcement: use kernel `SyscallCapRequest` with retry loop (domains 
 
 ### Integration Test Checklist
 
-- [ ] Connect via `telnet <esp32-ip> 23`, get shell prompt
+- [ ] Connect via `nc <esp32-ip> 23`, get shell prompt
 - [ ] `ps` shows all running domains
 - [ ] `log 20` shows last 20 log lines from boot
 - [ ] `ls /sdcard` shows FAT filesystem contents

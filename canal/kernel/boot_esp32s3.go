@@ -74,7 +74,7 @@ func bootDomains() {
 	// DOMAIN_STACK; flashing domains does not configure the kernel boot list.
 	// WiFi already embeds picoceci REPL over TCP, so standalone picoceci,
 	// logger, and tls are not auto-started by default.
-	domainStack := []string{"wifi"}
+	domainStack := []string{"sdcard", "wifi"}
 
 	for _, name := range domainStack {
 		def, ok := getDomainBootDef(name)
@@ -111,6 +111,8 @@ func getDomainBootDef(name string) (domainDef, bool) {
 		return domainDef{name: "led", heapSize: HeapTiny, fallback: ledDomainEntry, priority: 0}, true
 	case "wifi":
 		return domainDef{name: "wifi", heapSize: HeapMedium, fallback: wifiDomainEntry, priority: 0}, true
+	case "sdcard":
+		return domainDef{name: "sdcard", heapSize: HeapSmall, fallback: nil, priority: 0}, true
 	case "logger":
 		return domainDef{name: "logger", heapSize: HeapSmall, fallback: nil, priority: 0}, true
 	case "picoceci":

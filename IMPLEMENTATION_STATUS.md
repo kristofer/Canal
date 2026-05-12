@@ -95,7 +95,7 @@ The WiFi domain is now booting reliably from flash, bringing up TCP, and running
                   │ TCP/IP
                   ↓
 ┌─────────────────────────────────────────┐
-│   Network Client (telnet/nc)            │
+│   Network Client (nc (netcat))            │
 │   - Interactive picoceci REPL           │
 │   - Full line editing                   │
 │   - Multi-line paste mode               │
@@ -152,7 +152,7 @@ make flash-wifi WIFI_SSID=YourNetwork WIFI_PASSWORD=YourPassword PORT=/dev/cu.us
 make monitor PORT=/dev/cu.usbmodem11201
 
 # Once working, connect from another terminal
-telnet <device-ip> 2323
+nc <device-ip> 2323
 ```
 
 ## 📦 Files Modified/Created

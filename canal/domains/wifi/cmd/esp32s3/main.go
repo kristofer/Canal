@@ -24,6 +24,7 @@ func domain_entry(param unsafe.Pointer) {
 	// in early startup or logging has valid backing memory.
 	initDomainHeapEarly()
 	heapInitialized = true
+	initCapabilityShimFromTaskParam(param)
 
 	domainMode = true
 	_ = param // Use param to avoid unused warning
@@ -74,7 +75,7 @@ func runWiFi() bool {
 		return false
 	}
 
-	logToSerialLine("[WiFi] Ready! Connect with: telnet <device-ip> " + itoa(int(port)))
+	logToSerialLine("[WiFi] Ready! Connect with: nc <device-ip> " + itoa(int(port)))
 	logToSerialLine("[WiFi] USB serial is now for logging only")
 
 	// Accept connections and run REPL
