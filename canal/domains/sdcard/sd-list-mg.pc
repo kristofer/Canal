@@ -1,20 +1,7 @@
-"sd_list_test_message_style.pc"
-| fs: Any resp: Any entries: Any |
+"sd_list_minimal.pc"
+| entries: Any |
 
-fs := Canal capability: #fsRead.
-
-fs send: (object {
-    op := #list.
-    path := '/'.
-}).
-
-resp := fs receive: 64.
-
-(resp success)
-    ifTrue: [
-        entries := resp items.
-        entries do: [ :e | Console println: e printString ].
-    ]
-    ifFalse: [
-        Console println: 'list failed'.
-    ].
+Console println: 'SD_LIST_MIN_BEGIN'.
+entries := FS list: '/'.
+entries do: [ :e | Console println: e printString ].
+Console println: 'SD_LIST_MIN_DONE'.

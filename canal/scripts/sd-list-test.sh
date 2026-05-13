@@ -9,7 +9,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CANAL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEST_FILE="$CANAL_DIR/domains/sdcard/sd-list-mg.pc"
+TEST_FILE="$CANAL_DIR/domains/sdcard/sd-list-test.pc"
 HOST="$1"
 PORT="${2:-2323}"
 
@@ -32,9 +32,14 @@ trap 'rm -f "$TMP_OUT"' EXIT
     printf -- '\n---\n'
 } | nc "$HOST" "$PORT" | tee "$TMP_OUT"
 
-if grep -qi "list failed" "$TMP_OUT"; then
-    echo "sd-list-test: FAIL (fs list reported failure)" >&2
+if ! grep -q "SD_LIST_BEGIN" "$TMP_OUT"; then
+    echo "sd-list-test: FAIL (test did not start)" >&2
     exit 1
 fi
 
-echo "sd-list-test: PASS (no list failure reported)"
+if ! grep -q "SD_LIST_DONE" "$TMP_OUT"; then
+    echo "sd-list-test: FAIL (listing did not complete)" >&2
+    exit 1
+fi
+
+echo "sd-list-test: PASS (listing completed)"
