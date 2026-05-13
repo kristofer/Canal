@@ -152,7 +152,7 @@ func makeCanalObject() *object.Object {
 	o := object.NewObject(make(map[string]*object.MethodDef))
 	openChannelMethod := &object.MethodDef{Native: func(_ *object.Object, args []*object.Object) (*object.Object, error) {
 		if len(args) != 1 {
-			return nil, fmt.Errorf("openChannel: expects one symbol argument")
+			return nil, fmt.Errorf("openChannel: expects one symbol or string argument")
 		}
 
 		name, err := symbolOrString(args[0])
