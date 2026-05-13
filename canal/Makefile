@@ -15,7 +15,7 @@ TINYGO        ?= tinygo
 TINYGO_TARGET ?= esp32s3-generic
 USE_IDF       ?= 1          # link against ESP-IDF FreeRTOS (required for flash domain loading)
 BAUD          ?= 115200
-DOMAIN_STACK  ?= led wifi
+DOMAIN_STACK  ?= led wifi sdcard
 ALL_DOMAINS   ?= led wifi logger picoceci sdcard tls
 ERASE_UNUSED  ?= 1
 WIFI_SSID     ?=
@@ -32,6 +32,7 @@ DOMAIN_LINKER := $(BUILD_DIR)/targets/esp32s3/domain-linker.ld
 # Their addresses are read from the kernel ELF after build with nm.
 # DOMAIN_RAM_SIZE must match DOMAIN_RAM_SLOT_SIZE in bridge_main.c.
 DOMAIN_RAM_SIZE ?= 0x4000
+DOMAIN_RAM_SIZE_SDCARD ?= 0x6000
 NM ?= $(firstword $(wildcard /Users/kristofer/.espressif/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32s3-elf-nm) xtensa-esp32s3-elf-nm)
 KERNEL_ELF := $(BUILD_DIR)/idf-app/build/canal_idf_bridge.elf
 TINYGO_ROOT ?= $(shell tinygo env TINYGOROOT 2>/dev/null)
@@ -45,6 +46,7 @@ LED_RAM_ORIGIN     = $(call nm_addr,domain_ram_led)
 WIFI_RAM_ORIGIN    = $(call nm_addr,domain_ram_wifi)
 LOGGER_RAM_ORIGIN  = $(call nm_addr,domain_ram_logger)
 PICOCECI_RAM_ORIGIN= $(call nm_addr,domain_ram_picoceci)
+SDCARD_RAM_ORIGIN  = $(call nm_addr,domain_ram_sdcard)
 TLS_RAM_ORIGIN     = $(call nm_addr,domain_ram_tls)
 
 # Linker flags injected into every domain build to resolve FreeRTOS/ESP-IDF
@@ -87,6 +89,8 @@ LOGGER_DROM_ORIGIN   = 0x3C201000
 LOGGER_IROM_ORIGIN   = 0x42204000
 PICOCECI_DROM_ORIGIN = 0x3C281000
 PICOCECI_IROM_ORIGIN = 0x42285000
+SDCARD_DROM_ORIGIN   = 0x3C301000
+SDCARD_IROM_ORIGIN   = 0x4230D000
 TLS_DROM_ORIGIN      = 0x3C380000
 TLS_IROM_ORIGIN      = 0x42380000
 
@@ -136,8 +140,8 @@ _check_port:
 
 # ── primary targets ───────────────────────────────────────────────────────────
 
-.PHONY: all build build-domains led wifi logger tls \
-        flash flash-domains flash-all flash-led flash-wifi flash-logger flash-tls flash-picoceci \
+.PHONY: all build build-domains led wifi logger sdcard tls \
+	flash flash-domains flash-all flash-led flash-wifi flash-logger flash-sdcard flash-tls flash-picoceci \
 	flash-core-domains monitor run clean help
 
 all: build
@@ -198,6 +202,19 @@ logger: _check_tinygo
 		-o $(OUT_DIR)/logger.elf \
 		.
 	@echo "Built: build/out/logger.elf"
+
+sdcard: _check_tinygo
+	@echo "Building SDCard domain..."
+	$(call build_domain_elf,sdcard,$(SDCARD_RAM_ORIGIN),$(DOMAIN_RAM_SIZE_SDCARD),$(SDCARD_DROM_ORIGIN),$(SDCARD_IROM_ORIGIN))
+	cd $(DOMAINS_DIR)/sdcard && $(TINYGO) build \
+		-target=$(OUT_DIR)/sdcard-target.json \
+		-opt=1 \
+		-gc=leaking \
+		$(EXTRA_TAGS) \
+		$(DOMAIN_LDFLAGS) \
+		-o $(OUT_DIR)/sdcard.elf \
+		.
+	@echo "Built: build/out/sdcard.elf"
 
 tls: _check_tinygo
 	@echo "Building TLS domain..."
@@ -277,6 +294,12 @@ flash-logger: _check_port logger
 	esptool.py --chip esp32s3 --port $(PORT) --baud 921600 write_flash \
 		0x200000 $(OUT_DIR)/logger.elf
 	@echo "Logger domain flashed"
+
+flash-sdcard: _check_port sdcard
+	@echo "Flashing SDCard domain to $(PORT) at $(SDCARD_ADDR)..."
+	esptool.py --chip esp32s3 --port $(PORT) --baud 921600 write_flash \
+		$(SDCARD_ADDR) $(OUT_DIR)/sdcard.elf
+	@echo "SDCard domain flashed"
 
 flash-tls: _check_port tls
 	@echo "Flashing TLS domain to $(PORT) at $(TLS_ADDR)..."
@@ -361,7 +384,7 @@ help:
 	@echo "Kernel targets:"
 	@echo "  make build            compile kernel only"
 	@echo "  make build-domains    compile all domains listed in DOMAIN_STACK"
-	@echo "  make led/wifi/logger/tls compile a single domain"
+	@echo "  make led/wifi/logger/sdcard/tls compile a single domain"
 	@echo ""
 	@echo "  make flash            compile + flash kernel (auto-detects port)"
 	@echo "  make flash-domains    build + flash domain stack in DOMAIN_STACK"
@@ -370,6 +393,7 @@ help:
 	@echo "  make flash-led        rebuild + flash LED domain only"
 	@echo "  make flash-wifi       rebuild + flash WiFi domain only"
 	@echo "  make flash-logger     rebuild + flash Logger domain only"
+	@echo "  make flash-sdcard     rebuild + flash SDCard domain only"
 	@echo "  make flash-tls        rebuild + flash TLS domain only"
 	@echo "  make flash-picoceci   rebuild + flash picoceci domain only"
 	@echo "  make flash-core-domains alias for flash-domains"

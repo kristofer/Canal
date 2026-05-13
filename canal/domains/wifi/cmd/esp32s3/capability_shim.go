@@ -72,12 +72,33 @@ var capCtx struct {
 	replyQ   queueHandle
 }
 
+var capTaskParam unsafe.Pointer
+
 var (
 	errCapShimUnavailable = fmt.Errorf("capability shim unavailable")
-	errCapRequestFailed   = fmt.Errorf("capability request failed")
-	errCapSendFailed      = fmt.Errorf("capability send failed")
-	errCapRecvFailed      = fmt.Errorf("capability receive failed")
 )
+
+// errorCodeToMessage converts kernel error codes to human-readable messages.
+func errorCodeToMessage(code uint8) string {
+	switch code {
+	case errNone:
+		return "success"
+	case errInvalidCap:
+		return "capability not found"
+	case errPermissionDenied:
+		return "access denied"
+	case errOutOfMemory:
+		return "out of memory"
+	case errInvalidDomain:
+		return "invalid domain"
+	case errCapTableFull:
+		return "capability table full"
+	case errDomainTableFull:
+		return "domain table full"
+	default:
+		return fmt.Sprintf("unknown error code %d", code)
+	}
+}
 
 //export xQueueGenericSend
 func xQueueGenericSend(xQueue queueHandle, pvItemToQueue unsafe.Pointer, xTicksToWait uint32, xCopyPosition baseType) baseType
@@ -100,26 +121,42 @@ func xQueueDelete(q queueHandle) {
 }
 
 func initCapabilityShimFromTaskParam(param unsafe.Pointer) {
-	if param == nil {
-		return
+	capTaskParam = param
+	capCtx.ready = false
+	if param != nil {
+		// DomainID is the first field in kernel.DomainParams and safe to read directly.
+		capCtx.domainID = *(*uint16)(param)
 	}
-	p := (*domainParams)(param)
-	capCtx.domainID = p.ID
-	capCtx.syscallQ = queueHandle(p.SyscallQ)
-	capCtx.replyQ = queueHandle(p.ReplyQ)
-	capCtx.ready = p.SyscallQ != nil && p.ReplyQ != nil
 }
 
 func capShimReady() bool {
 	return capCtx.ready
 }
 
+func ensureCapCtxReady() error {
+	if capCtx.ready {
+		return nil
+	}
+	if capTaskParam == nil {
+		return errCapShimUnavailable
+	}
+	p := (*domainParams)(capTaskParam)
+	if p.SyscallQ == nil || p.ReplyQ == nil {
+		return errCapShimUnavailable
+	}
+	capCtx.domainID = p.ID
+	capCtx.syscallQ = queueHandle(p.SyscallQ)
+	capCtx.replyQ = queueHandle(p.ReplyQ)
+	capCtx.ready = true
+	return nil
+}
+
 func capRequest(name string, rights uint32) (uint32, error) {
-	if !capCtx.ready {
-		return 0, errCapShimUnavailable
+	if err := ensureCapCtxReady(); err != nil {
+		return 0, fmt.Errorf("capRequest: shim not initialized")
 	}
 	if name == "" {
-		return 0, errCapRequestFailed
+		return 0, fmt.Errorf("capRequest: empty service name")
 	}
 
 	nameBytes := []byte(name)
@@ -132,17 +169,18 @@ func capRequest(name string, rights uint32) (uint32, error) {
 	}
 	var resp syscallResponse
 	if err := capDoSyscall(&req, &resp); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("capRequest: syscall failed: %w", err)
 	}
 	if resp.Error != errNone {
-		return 0, errCapRequestFailed
+		msg := errorCodeToMessage(resp.Error)
+		return 0, fmt.Errorf("capRequest for %q failed: %s", name, msg)
 	}
 	return resp.CapID, nil
 }
 
 func capSend(capID uint32, data unsafe.Pointer, size uint32) error {
-	if !capCtx.ready {
-		return errCapShimUnavailable
+	if err := ensureCapCtxReady(); err != nil {
+		return fmt.Errorf("capSend: shim not initialized")
 	}
 	req := syscallRequest{
 		Op:       sysCapSend,
@@ -153,20 +191,21 @@ func capSend(capID uint32, data unsafe.Pointer, size uint32) error {
 	}
 	var resp syscallResponse
 	if err := capDoSyscall(&req, &resp); err != nil {
-		return err
+		return fmt.Errorf("capSend: syscall failed: %w", err)
 	}
 	if resp.Error != errNone {
-		return errCapSendFailed
+		msg := errorCodeToMessage(resp.Error)
+		return fmt.Errorf("capSend with cap %d failed: %s", capID, msg)
 	}
 	return nil
 }
 
 func capDoSyscall(req *syscallRequest, resp *syscallResponse) error {
 	if xQueueGenericSend(capCtx.syscallQ, unsafe.Pointer(req), portMAX_DELAY, qSendBack) != pdTRUE {
-		return errCapSendFailed
+		return fmt.Errorf("capDoSyscall: failed to send request to syscall queue")
 	}
 	if xQueueReceive(capCtx.replyQ, unsafe.Pointer(resp), portMAX_DELAY) != pdTRUE {
-		return errCapRecvFailed
+		return fmt.Errorf("capDoSyscall: timeout waiting for syscall response")
 	}
 	return nil
 }

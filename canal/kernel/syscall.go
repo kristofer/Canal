@@ -207,6 +207,15 @@ func handleDebugPrint(req *SyscallRequest) SyscallResponse {
 
 // Capability registry (simplified)
 var capRegistry = make(map[string]CapabilityID)
+var fsServiceQueue unsafe.Pointer
+
+//export canal_set_fs_service_queue
+func canal_set_fs_service_queue(queue unsafe.Pointer) {
+	fsServiceQueue = queue
+	// Do NOT call delete() on capRegistry here: TinyGo's map delete on an
+	// empty map (nil bucket array) writes to address 0 → StoreProhibited crash.
+	// The registry is empty at first registration time, so nothing to evict.
+}
 
 func findCapabilityByName(name string, requestor DomainID, rights uint32) CapabilityID {
 	// Check registry first
@@ -222,6 +231,14 @@ func findCapabilityByName(name string, requestor DomainID, rights uint32) Capabi
 		// Create channel capability for GPIO service
 		queue := xQueueCreate(4, 32) // Small queue, 32-byte messages
 		capID := CapAlloc(requestor, CapTypeChannel, unsafe.Pointer(queue), rights)
+		capRegistry[name] = capID
+		return capID
+
+	case "service:fs":
+		if fsServiceQueue == nil {
+			return CapabilityID(0xFFFFFFFF)
+		}
+		capID := CapAlloc(0, CapTypeChannel, fsServiceQueue, RightRead|RightWrite)
 		capRegistry[name] = capID
 		return capID
 

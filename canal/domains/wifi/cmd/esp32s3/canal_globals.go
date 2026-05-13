@@ -12,11 +12,6 @@ import (
 	"github.com/kristofer/picoceci/pkg/object"
 )
 
-type localFile struct {
-	path string
-	data []byte
-}
-
 type fsOperation uint8
 
 const (
@@ -132,15 +127,10 @@ type fsBoolResponse struct {
 }
 
 var (
-	errNoSuchFile  = fmt.Errorf("file not found")
 	errNotAString  = fmt.Errorf("argument must be String or Symbol")
 	errNeedsString = fmt.Errorf("data must be String or ByteArray")
-	errFSOperation = fmt.Errorf("filesystem operation failed")
 	fsReadCapID    uint32
 	fsWriteCapID   uint32
-	localFiles     = []localFile{
-		{path: "/readme.pc", data: []byte("Console println: 'hello from wifi local FS'.")},
-	}
 )
 
 func installCanalGlobals(vm *bytecode.VM) {
@@ -161,12 +151,11 @@ func makeCanalObject() *object.Object {
 		}
 
 		switch name {
-		case "fsRead":
-			return makeFSObject(), nil
-		case "fsWrite", "fsReadWrite", "fs":
+		case CapabilityFSRead, CapabilityFSWrite, CapabilityFSReadWrite:
 			return makeFSObject(), nil
 		default:
-			return nil, fmt.Errorf("unknown channel #%s", name)
+			supported := fmt.Sprintf("%s, %s, %s", CapabilityFSRead, CapabilityFSWrite, CapabilityFSReadWrite)
+			return nil, fmt.Errorf("unknown capability #%s; supported: %s", name, supported)
 		}
 	}}
 	o.Methods["openChannel:"] = openChannelMethod
@@ -195,7 +184,7 @@ func makeFSObject() *object.Object {
 
 		items, err := fsList(path)
 		if err != nil {
-			items = localList(path)
+			return nil, fmt.Errorf("list %q failed: %w", path, err)
 		}
 		arr := object.ArrayObject(len(items))
 		for i := range items {
@@ -215,10 +204,7 @@ func makeFSObject() *object.Object {
 
 		data, err := fsReadFile(path)
 		if err != nil {
-			data, err = localReadFile(path)
-			if err != nil {
-				return nil, err
-			}
+			return nil, fmt.Errorf("readFile %q failed: %w", path, err)
 		}
 		return object.StringObject(string(data)), nil
 	}}
@@ -232,9 +218,6 @@ func makeFSObject() *object.Object {
 			return nil, err
 		}
 		_, err = fsReadFile(path)
-		if err != nil {
-			_, err = localReadFile(path)
-		}
 		return object.BoolObject(err == nil), nil
 	}}
 
@@ -259,13 +242,13 @@ func makeFSObject() *object.Object {
 		}
 
 		if err := fsWriteFile(path, data); err != nil {
-			localWriteFile(path, data)
+			return nil, fmt.Errorf("writeFile %q failed: %w", path, err)
 		}
 		return object.Nil, nil
 	}}
 
 	o.Methods["printString"] = &object.MethodDef{Native: func(_ *object.Object, _ []*object.Object) (*object.Object, error) {
-		return object.StringObject("CanalFS(local-shim)"), nil
+		return object.StringObject("CanalFS(service:fs)"), nil
 	}}
 
 	return o
@@ -284,10 +267,7 @@ func symbolOrString(o *object.Object) (string, error) {
 }
 
 func readModuleFromFS(path string) ([]byte, error) {
-	if data, err := fsReadFile(path); err == nil {
-		return data, nil
-	}
-	return localReadFile(path)
+	return fsReadFile(path)
 }
 
 func ensureFSCapability(rights uint32) (uint32, error) {
@@ -316,16 +296,16 @@ func ensureFSCapability(rights uint32) (uint32, error) {
 
 func doFSRequest(op fsOperation, rights uint32, req unsafe.Pointer, reqSize uintptr, resp unsafe.Pointer, respSize uintptr) error {
 	if !capShimReady() {
-		return errCapShimUnavailable
+		return fmt.Errorf("filesystem service not available (shim not initialized)")
 	}
 	capID, err := ensureFSCapability(rights)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot request filesystem capability: %w", err)
 	}
 
 	replyQ := xQueueCreate(1, uint32(respSize))
 	if replyQ == nil {
-		return errCapRecvFailed
+		return fmt.Errorf("cannot allocate reply queue")
 	}
 	defer xQueueDelete(replyQ)
 
@@ -338,11 +318,11 @@ func doFSRequest(op fsOperation, rights uint32, req unsafe.Pointer, reqSize uint
 	}
 
 	if err := capSend(capID, unsafe.Pointer(&msg), uint32(unsafe.Sizeof(msg))); err != nil {
-		return err
+		return fmt.Errorf("cannot send filesystem request: %w", err)
 	}
 
 	if xQueueReceive(replyQ, resp, fsTimeoutTicks) != pdTRUE {
-		return errCapRecvFailed
+		return fmt.Errorf("filesystem request timed out (waited %d ticks)", fsTimeoutTicks)
 	}
 
 	return nil
@@ -371,69 +351,6 @@ func fsReadFile(path string) ([]byte, error) {
 
 func fsWriteFile(path string, data []byte) error {
 	return cfs.WriteFile(path, data)
-}
-
-func localReadFile(path string) ([]byte, error) {
-	path = cleanPath(path)
-	for i := range localFiles {
-		if localFiles[i].path == path {
-			out := make([]byte, len(localFiles[i].data))
-			copy(out, localFiles[i].data)
-			return out, nil
-		}
-	}
-	return nil, errNoSuchFile
-}
-
-func localWriteFile(path string, data []byte) {
-	path = cleanPath(path)
-	for i := range localFiles {
-		if localFiles[i].path == path {
-			localFiles[i].data = append(localFiles[i].data[:0], data...)
-			return
-		}
-	}
-	copyData := make([]byte, len(data))
-	copy(copyData, data)
-	localFiles = append(localFiles, localFile{path: path, data: copyData})
-}
-
-func localList(path string) []string {
-	path = cleanPath(path)
-	if path != "/" && strings.HasSuffix(path, "/") {
-		path = strings.TrimSuffix(path, "/")
-	}
-
-	seen := map[string]bool{}
-	out := make([]string, 0, len(localFiles))
-	prefix := path
-	if prefix == "/" {
-		prefix = ""
-	}
-
-	for i := range localFiles {
-		p := localFiles[i].path
-		if !strings.HasPrefix(p, prefix+"/") && !(prefix == "" && strings.HasPrefix(p, "/")) {
-			continue
-		}
-
-		rel := strings.TrimPrefix(p, prefix)
-		rel = strings.TrimPrefix(rel, "/")
-		if rel == "" {
-			continue
-		}
-
-		seg := rel
-		if slash := strings.IndexByte(rel, '/'); slash >= 0 {
-			seg = rel[:slash] + "/"
-		}
-		if !seen[seg] {
-			seen[seg] = true
-			out = append(out, seg)
-		}
-	}
-
-	return out
 }
 
 func cleanPath(path string) string {

@@ -2,12 +2,20 @@
 #include <string.h>
 #include "esp_err.h"
 #include "esp_heap_caps.h"
+#include "esp_log.h"
 #include "spi_flash_mmap.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal/mmu_hal.h"
 #include "hal/cache_ll.h"
+#include "ff.h"
+#include "driver/spi_master.h"
+#include "driver/sdspi_host.h"
+#include "driver/gpio.h"
+#include "sdmmc_cmd.h"
+#include "diskio_sdmmc.h"
+#include "esp_rom_sys.h"
 
 // app_main is provided by TinyGo object (kernel_idf.o).
 extern void app_main(void);
@@ -17,13 +25,14 @@ extern void app_main(void);
 // Addresses are read after build with xtensa-esp32s3-elf-nm and used as
 // --defsym=__domain_ram_origin=0xADDR when linking each domain ELF.
 #define DOMAIN_RAM_SLOT_SIZE 16384
+#define DOMAIN_RAM_SLOT_SIZE_SDCARD 24576
 
 __attribute__((aligned(4))) static uint8_t domain_ram_led[DOMAIN_RAM_SLOT_SIZE];
 __attribute__((aligned(4))) static uint8_t domain_ram_wifi[DOMAIN_RAM_SLOT_SIZE];
 __attribute__((aligned(4))) static uint8_t domain_ram_logger[DOMAIN_RAM_SLOT_SIZE];
 __attribute__((aligned(4))) static uint8_t domain_ram_picoceci[DOMAIN_RAM_SLOT_SIZE];
 __attribute__((aligned(4))) static uint8_t domain_ram_tls[DOMAIN_RAM_SLOT_SIZE];
-__attribute__((aligned(4))) static uint8_t domain_ram_sdcard[DOMAIN_RAM_SLOT_SIZE];
+__attribute__((aligned(4))) static uint8_t domain_ram_sdcard[DOMAIN_RAM_SLOT_SIZE_SDCARD];
 
 // Return base address of a domain's RAM window.
 // Name is matched as a null-terminated C string.
@@ -41,7 +50,10 @@ const void *canal_domain_ram(const char *name, uint32_t *size_out)
     else if (name[0] == 't' && name[1] == 'l' && name[2] == 's' && name[3] == 0)
         return domain_ram_tls;
     else if (name[0] == 's' && name[1] == 'd')
+    {
+        *size_out = DOMAIN_RAM_SLOT_SIZE_SDCARD;
         return domain_ram_sdcard;
+    }
     *size_out = 0;
     return (void *)0;
 }
@@ -156,4 +168,300 @@ int32_t canal_wifi_init_default(void)
 void *canal_domain_psram_alloc(uint32_t size)
 {
     return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+// SD card hardware initialisation via SPI.
+// Initialises SPI2 bus, mounts the SDSPI host, probes the card, and
+// registers the diskio driver so that FatFS f_mount() can succeed.
+// Returns 0 on success, an esp_err_t code on failure.
+#define SDCARD_SPI_HOST SPI2_HOST
+
+static const char *TAG_SD = "canal_sd";
+
+typedef struct
+{
+    int cs;
+    int mosi;
+    int miso;
+    int clk;
+} sd_pins_t;
+
+// Canonical Canal ESP32-S3 SD SPI pins.
+static const sd_pins_t k_sd_pin_sets[] = {
+    {.cs = 4, .mosi = 11, .miso = 13, .clk = 12},
+    {.cs = 2, .mosi = 42, .miso = 41, .clk = 40},
+};
+
+static sdmmc_card_t *s_sdcard = NULL;
+static sdspi_dev_handle_t s_sdspi_handle = 0;
+static bool s_bus_initialized = false;
+static bool s_sdspi_initialized = false;
+static int s_selected_pin_set = -1;
+
+static void sd_spi_warmup_lines(const sd_pins_t pins)
+{
+    // Some adapters/cards need explicit clocks with CS high to enter SPI mode.
+    gpio_set_direction(pins.cs, GPIO_MODE_OUTPUT);
+    gpio_set_direction(pins.clk, GPIO_MODE_OUTPUT);
+    gpio_set_direction(pins.mosi, GPIO_MODE_OUTPUT);
+    gpio_set_direction(pins.miso, GPIO_MODE_INPUT);
+
+    gpio_set_level(pins.cs, 1);
+    gpio_set_level(pins.mosi, 1);
+    gpio_set_level(pins.clk, 0);
+    esp_rom_delay_us(200);
+
+    for (int i = 0; i < 96; i++)
+    {
+        gpio_set_level(pins.clk, 1);
+        esp_rom_delay_us(2);
+        gpio_set_level(pins.clk, 0);
+        esp_rom_delay_us(2);
+    }
+
+    esp_rom_delay_us(200);
+}
+
+int32_t canal_sdcard_init(void)
+{
+    if (s_sdcard != NULL)
+    {
+        return 0; // already initialised
+    }
+
+    static const int k_probe_freqs_khz[] = {SDMMC_FREQ_PROBING, 200, 100};
+    esp_err_t last_err = ESP_FAIL;
+
+    for (int i = 0; i < (int)(sizeof(k_sd_pin_sets) / sizeof(k_sd_pin_sets[0])); i++)
+    {
+        const sd_pins_t pins = k_sd_pin_sets[i];
+
+        gpio_set_pull_mode(pins.mosi, GPIO_PULLUP_ONLY);
+        gpio_set_pull_mode(pins.miso, GPIO_PULLUP_ONLY);
+        gpio_set_pull_mode(pins.clk, GPIO_PULLUP_ONLY);
+        gpio_set_pull_mode(pins.cs, GPIO_PULLUP_ONLY);
+        sd_spi_warmup_lines(pins);
+        vTaskDelay(pdMS_TO_TICKS(20));
+
+        spi_bus_config_t bus_cfg = {
+            .mosi_io_num = pins.mosi,
+            .miso_io_num = pins.miso,
+            .sclk_io_num = pins.clk,
+            .quadwp_io_num = -1,
+            .quadhd_io_num = -1,
+            .max_transfer_sz = 4096,
+        };
+        esp_err_t ret = spi_bus_initialize(SDCARD_SPI_HOST, &bus_cfg, SDSPI_DEFAULT_DMA);
+        if (ret == ESP_OK)
+        {
+            s_bus_initialized = true;
+        }
+        else if (ret != ESP_ERR_INVALID_STATE)
+        {
+            last_err = ret;
+            ESP_LOGW(TAG_SD, "spi_bus_initialize failed pins[%d] cs=%d mosi=%d miso=%d clk=%d err=0x%x", i, pins.cs, pins.mosi, pins.miso, pins.clk, ret);
+            continue;
+        }
+
+        sdspi_device_config_t slot_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
+        slot_cfg.gpio_cs = pins.cs;
+        slot_cfg.host_id = SDCARD_SPI_HOST;
+        slot_cfg.gpio_cd = SDSPI_SLOT_NO_CD;
+        slot_cfg.gpio_wp = SDSPI_SLOT_NO_WP;
+
+        ret = sdspi_host_init();
+        if (ret == ESP_OK)
+        {
+            s_sdspi_initialized = true;
+        }
+        else if (ret != ESP_ERR_INVALID_STATE)
+        {
+            last_err = ret;
+            ESP_LOGW(TAG_SD, "sdspi_host_init failed pins[%d] err=0x%x", i, ret);
+            if (s_bus_initialized)
+            {
+                spi_bus_free(SDCARD_SPI_HOST);
+                s_bus_initialized = false;
+            }
+            continue;
+        }
+
+        ret = sdspi_host_init_device(&slot_cfg, &s_sdspi_handle);
+        if (ret != ESP_OK)
+        {
+            last_err = ret;
+            ESP_LOGW(TAG_SD, "sdspi_host_init_device failed pins[%d] err=0x%x", i, ret);
+            if (s_sdspi_initialized)
+            {
+                sdspi_host_deinit();
+                s_sdspi_initialized = false;
+            }
+            if (s_bus_initialized)
+            {
+                spi_bus_free(SDCARD_SPI_HOST);
+                s_bus_initialized = false;
+            }
+            continue;
+        }
+
+        esp_err_t pinset_err = ESP_FAIL;
+        for (int f = 0; f < (int)(sizeof(k_probe_freqs_khz) / sizeof(k_probe_freqs_khz[0])); f++)
+        {
+            sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+            host.slot = s_sdspi_handle;
+            host.unaligned_multi_block_rw_max_chunk_size = 8;
+            host.max_freq_khz = k_probe_freqs_khz[f];
+            host.command_timeout_ms = 2000;
+            ESP_LOGI(TAG_SD, "sd init try pins[%d] cs=%d mosi=%d miso=%d clk=%d freq=%dkHz", i, pins.cs, pins.mosi, pins.miso, pins.clk, host.max_freq_khz);
+            vTaskDelay(pdMS_TO_TICKS(20));
+
+            s_sdcard = heap_caps_malloc(sizeof(sdmmc_card_t), MALLOC_CAP_DEFAULT);
+            if (!s_sdcard)
+            {
+                last_err = ESP_ERR_NO_MEM;
+                pinset_err = ESP_ERR_NO_MEM;
+                break;
+            }
+
+            ret = ESP_FAIL;
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                ret = sdmmc_card_init(&host, s_sdcard);
+                if (ret == ESP_OK)
+                {
+                    break;
+                }
+                vTaskDelay(pdMS_TO_TICKS(120));
+            }
+
+            if (ret == ESP_OK)
+            {
+                ff_diskio_register_sdmmc(0, s_sdcard);
+                s_selected_pin_set = i;
+                ESP_LOGI(TAG_SD, "sd init ok pins[%d] cs=%d mosi=%d miso=%d clk=%d", i, pins.cs, pins.mosi, pins.miso, pins.clk);
+                return 0;
+            }
+
+            pinset_err = ret;
+            last_err = ret;
+            ESP_LOGW(TAG_SD, "sdmmc_card_init failed pins[%d] freq=%dkHz err=0x%x", i, host.max_freq_khz, ret);
+            heap_caps_free(s_sdcard);
+            s_sdcard = NULL;
+            sd_spi_warmup_lines(pins);
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+
+        sdspi_host_remove_device(s_sdspi_handle);
+        s_sdspi_handle = 0;
+        if (s_sdspi_initialized)
+        {
+            sdspi_host_deinit();
+            s_sdspi_initialized = false;
+        }
+        if (s_bus_initialized)
+        {
+            spi_bus_free(SDCARD_SPI_HOST);
+            s_bus_initialized = false;
+        }
+
+        if (pinset_err == ESP_ERR_NO_MEM)
+        {
+            return (int32_t)pinset_err;
+        }
+    }
+
+    return (int32_t)last_err;
+}
+
+// FatFS wrappers exposed for TinyGo domains through --just-symbols.
+uint8_t canal_f_mount(void *fs, const char *path, uint8_t opt)
+{
+    return (uint8_t)f_mount((FATFS *)fs, path, opt);
+}
+
+uint8_t canal_f_open(void *fp, const char *path, uint8_t mode)
+{
+    return (uint8_t)f_open((FIL *)fp, path, mode);
+}
+
+uint8_t canal_f_close(void *fp)
+{
+    return (uint8_t)f_close((FIL *)fp);
+}
+
+uint8_t canal_f_read(void *fp, void *buff, uint32_t btr, uint32_t *br)
+{
+    UINT out = 0;
+    FRESULT res = f_read((FIL *)fp, buff, (UINT)btr, &out);
+    if (br)
+    {
+        *br = (uint32_t)out;
+    }
+    return (uint8_t)res;
+}
+
+uint8_t canal_f_write(void *fp, const void *buff, uint32_t btw, uint32_t *bw)
+{
+    UINT out = 0;
+    FRESULT res = f_write((FIL *)fp, buff, (UINT)btw, &out);
+    if (bw)
+    {
+        *bw = (uint32_t)out;
+    }
+    return (uint8_t)res;
+}
+
+uint8_t canal_f_lseek(void *fp, uint32_t ofs)
+{
+    return (uint8_t)f_lseek((FIL *)fp, (FSIZE_t)ofs);
+}
+
+uint8_t canal_f_sync(void *fp)
+{
+    return (uint8_t)f_sync((FIL *)fp);
+}
+
+uint32_t canal_f_size(void *fp)
+{
+    return (uint32_t)f_size((FIL *)fp);
+}
+
+uint8_t canal_f_stat(const char *path, void *fno)
+{
+    return (uint8_t)f_stat(path, (FILINFO *)fno);
+}
+
+uint8_t canal_f_opendir(void *dp, const char *path)
+{
+    return (uint8_t)f_opendir((FF_DIR *)dp, path);
+}
+
+uint8_t canal_f_closedir(void *dp)
+{
+    return (uint8_t)f_closedir((FF_DIR *)dp);
+}
+
+uint8_t canal_f_readdir(void *dp, void *fno)
+{
+    return (uint8_t)f_readdir((FF_DIR *)dp, (FILINFO *)fno);
+}
+
+uint8_t canal_f_mkdir(const char *path)
+{
+    return (uint8_t)f_mkdir(path);
+}
+
+uint8_t canal_f_unlink(const char *path)
+{
+    return (uint8_t)f_unlink(path);
+}
+
+uint8_t canal_f_rename(const char *old_path, const char *new_path)
+{
+    return (uint8_t)f_rename(old_path, new_path);
+}
+
+uint8_t canal_f_truncate(void *fp)
+{
+    return (uint8_t)f_truncate((FIL *)fp);
 }

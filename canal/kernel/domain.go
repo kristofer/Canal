@@ -169,7 +169,7 @@ func SpawnDomainFromFlash(name string, priority uint8) (DomainID, uint8) {
 	stackWords := uint32(4096)
 	if name == "wifi" {
 		// WiFi + interpreter path is stack-heavy; keep a larger task stack.
-		stackWords = 16384
+		stackWords = 24576
 	}
 	println("[Kernel] Starting domain task", name, "entry:", entryPoint, "prio:", priority)
 	result := BaseType_t(canal_create_task(

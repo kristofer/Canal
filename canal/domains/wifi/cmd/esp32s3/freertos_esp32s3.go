@@ -19,12 +19,6 @@ import "unsafe"
 //go:extern runtime.heapptr
 var runtimeHeapPtr uintptr
 
-//go:extern runtime.heapStart
-var runtimeHeapStart uintptr
-
-//go:extern runtime.heapEnd
-var runtimeHeapEnd uintptr
-
 //go:extern _edata
 var _edataSymbol [0]byte
 
@@ -36,24 +30,18 @@ const wifiEarlyDRAMHeapSize uintptr = 12 * 1024
 // hidden TinyGo print/string path allocates before the domain is fully up.
 func initDomainHeapEarly() {
 	base := uintptr(unsafe.Pointer(&_edataSymbol))
-	runtimeHeapStart = base
 	runtimeHeapPtr = base
-	runtimeHeapEnd = base + wifiEarlyDRAMHeapSize
 }
 
 func initDomainHeap() {
 	if psram := canalDomainPsramAlloc(wifiPSRAMHeapSize); psram != nil {
 		base := uintptr(psram)
-		runtimeHeapStart = base
 		runtimeHeapPtr = base
-		runtimeHeapEnd = base + uintptr(wifiPSRAMHeapSize)
 		println("[WiFi] Heap in PSRAM:", base, "size:", wifiPSRAMHeapSize)
 		return
 	}
 
 	base := uintptr(unsafe.Pointer(&_edataSymbol))
-	runtimeHeapStart = base
 	runtimeHeapPtr = base
-	runtimeHeapEnd = base + wifiEarlyDRAMHeapSize
 	println("[WiFi] PSRAM alloc failed, using DRAM heap from _edata")
 }

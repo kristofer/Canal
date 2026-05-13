@@ -20,14 +20,18 @@ var heapInitialized bool
 //
 //export domain_entry
 func domain_entry(param unsafe.Pointer) {
+	println("[WiFi] domain_entry: begin")
 	// Bootstrap a tiny DRAM heap immediately so any hidden TinyGo allocation
 	// in early startup or logging has valid backing memory.
 	initDomainHeapEarly()
+	println("[WiFi] domain_entry: heap early ok")
 	heapInitialized = true
+	initCapabilityShimFromTaskParam(param)
+	println("[WiFi] domain_entry: cap shim init ok")
 
 	domainMode = true
-	// Keep loader ABI-compatible signature: kernel passes task params here.
-	_ = param
+	println("[WiFi] domain_entry: runWiFi")
+	_ = param // Use param to avoid unused warning
 	_ = runWiFi()
 
 	// If runWiFi ever returns, park safely instead of executing fallthrough bytes.

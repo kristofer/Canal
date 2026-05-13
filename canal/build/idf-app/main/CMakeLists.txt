@@ -1,5 +1,6 @@
 idf_component_register(SRCS "bridge_main.c"
-    INCLUDE_DIRS ".")
+    INCLUDE_DIRS "."
+    PRIV_REQUIRES driver sdmmc fatfs spi_flash esp_wifi)
 
 set(CANAL_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../..")
 set(CANAL_KERNEL_DIR "${CANAL_ROOT}/kernel")
@@ -77,3 +78,23 @@ add_custom_target(canal_tinygo_obj ALL DEPENDS ${CANAL_OBJ})
 add_dependencies(${COMPONENT_LIB} canal_tinygo_obj)
 
 target_link_libraries(${COMPONENT_LIB} INTERFACE ${CANAL_OBJ})
+
+target_link_options(${COMPONENT_LIB} INTERFACE
+    -Wl,--undefined=canal_f_mount
+    -Wl,--undefined=canal_f_open
+    -Wl,--undefined=canal_f_close
+    -Wl,--undefined=canal_f_read
+    -Wl,--undefined=canal_f_write
+    -Wl,--undefined=canal_f_lseek
+    -Wl,--undefined=canal_f_sync
+    -Wl,--undefined=canal_f_size
+    -Wl,--undefined=canal_f_stat
+    -Wl,--undefined=canal_f_opendir
+    -Wl,--undefined=canal_f_closedir
+    -Wl,--undefined=canal_f_readdir
+    -Wl,--undefined=canal_f_mkdir
+    -Wl,--undefined=canal_f_unlink
+    -Wl,--undefined=canal_f_rename
+    -Wl,--undefined=canal_f_truncate
+    -Wl,--undefined=canal_sdcard_init
+)
