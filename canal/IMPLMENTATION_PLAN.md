@@ -1,93 +1,122 @@
-# Capability Removal Plan (Channel-First Canal)
+# Typed Channel Plan (Replacing Capability + Heavy Syscall Paths)
 
 ## Problem
 
-Capabilities currently add complexity without strong enforcement value in the present
-Canal architecture. The implementation also has split paths (kernel capability table,
-runtime capability API, and domain-local shims), which slows down getting a reliable
-picoceci-on-WiFi workflow.
+The current capability/syscall model is heavier than needed for the short-term Canal goal:
+run multiple domain tasks and let picoceci communicate with services quickly and reliably.
+We currently maintain overlapping paths (capability table, syscall request routing, and
+domain-local shims), which slows iteration.
 
-## Current Gaps to Resolve First
+## Proposal Summary
 
-1. `runtime/cap.go` still has partial/stub behavior (`marshal`/`unmarshal` TODO path),
-   so only some capability flows are practical.
-2. `kernel/syscall.go` capability lookup is still simplified and not service-complete.
-3. WiFi has a domain-local capability shim (`domains/wifi/cmd/esp32s3/capability_shim.go`),
-   which duplicates syscall contracts and creates another maintenance surface.
-4. picoceci FS access is still described and structured around capability acquisition.
+Move to **typed picoceci channels** plus a **small io_uring-style queue pair**:
 
-## Target Architecture (Post-Removal)
+1. **Typed channels as the public model** (what picoceci sees)
+2. **Shared submission/completion queue mechanics** (how requests are transported)
+3. **Static boot wiring policy** (which domain can open which service channel)
 
-- Keep domain isolation and queue-based IPC.
-- Replace user-facing capability acquisition with explicit service channels:
-  - `service.Open("fs")`, `service.Open("wifi")`, etc.
-- Enforce access by static wiring + boot policy (which domains get which service handles),
-  not by dynamic grant/revoke semantics.
-- Keep message protocols unchanged where possible to minimize risk.
+This keeps queue IPC and domain isolation while removing most capability formalism.
 
-## Phased Execution Plan
+## Core Design
 
-### Phase 1 — Introduce Service Handle API (No Behavior Break)
+### 1) Typed picoceci channels
 
-1. Add a channel-first runtime API that opens named services directly.
-2. Internally map existing stdlib clients (`stdlib/fs`, `stdlib/wifi`, `stdlib/tls`) to
-   the new API.
-3. Keep compatibility wrappers for existing capability calls so old code still builds.
+- Replace capability acquisition APIs with typed channel opens:
+  - `Canal openChannel: #fs.`
+  - `Canal openChannel: #wifi.`
+- Each channel has a declared schema/version and fixed message object types:
+  - `FSRequest` / `FSResponse`
+  - `WiFiRequest` / `WiFiResponse`
+  - `TLSRequest` / `TLSResponse`
+- picoceci-facing calls remain object-centric (`send:`/`receive:`), but runtime validates
+  the message type before enqueue.
 
-Exit criteria:
+### 2) Simplified io_uring-style transport
 
-- Existing demos build and run unchanged.
-- `stdlib/*` no longer depend on new capability requests for core operations.
+Per requesting domain:
 
-### Phase 2 — Replace Domain-Local Capability Shims
+- `SQ` (submission queue): request descriptors written by caller runtime
+- `CQ` (completion queue): completion descriptors written by service runtime
 
-1. Remove WiFi domain capability shim usage and switch to service handle API.
-2. Keep WiFi picoceci selectors (`fs list:`, `fs readFile:`, etc.) unchanged.
-3. Route `readModuleFromFS(...)` through the same service-handle-backed FS path.
+Descriptor shape (conceptual):
 
-Exit criteria:
+- `op` (typed operation enum)
+- `service` (fs/wifi/tls/etc.)
+- `reqPtr`, `reqLen`
+- `cookie` (caller correlation ID)
+- completion: `status`, `respPtr`, `respLen`, `cookie`
 
-- No domain-local capability syscall mirror remains for WiFi.
-- FS operations in WiFi picoceci path use one shared service access path.
+This gives async-friendly behavior with fixed queue semantics and avoids expanding
+syscall op surface area.
 
-### Phase 3 — Kernel Simplification
+### 3) Kernel role after change
 
-1. Replace dynamic capability request/grant/revoke flow with service registry + channel
-   lookup only.
-2. Remove capability-rights branching that is no longer used by callers.
-3. Keep queue IPC send/recv implementation and domain reply queues intact.
+- Keep kernel as queue/router/bootstrap authority.
+- Remove capability grant/revoke and capability-right rights negotiation from hot path.
+- Keep only minimal control operations needed for:
+  - domain startup,
+  - channel registry lookup,
+  - queue wiring and health checks.
 
-Exit criteria:
+## Migration Phases
 
-- Kernel syscall surface is service/channel oriented.
-- `CapGrant`/`CapRevoke` path is removed or fully deprecated behind compatibility gates.
+### Phase 1 — Define typed channel contracts
 
-### Phase 4 — Picoceci Fast Path Completion
-
-1. Ensure boot order guarantees providers before consumers (`sdcard` before WiFi/picoceci
-   consumers).
-2. Make service-open failures deterministic and visible in console logs.
-3. Validate the known-good flow: boot, WiFi connect, TCP REPL, module import from FS.
+1. Add service channel registry entries (`fs`, `wifi`, `tls`) with schema IDs.
+2. Define shared request/response structs and operation enums.
+3. Add runtime validation helpers for typed send/recv boundaries.
 
 Exit criteria:
 
-- Running picoceci over WiFi no longer depends on capability-specific setup.
-- End-to-end script load + file read/write works on device.
+- One source of truth exists for channel type definitions.
+- Existing stdlib packages can compile against the new type contracts.
 
-### Phase 5 — Cleanup + Documentation
+### Phase 2 — Introduce SQ/CQ transport alongside current flow
 
-1. Remove remaining capability-centric language from runtime/stdlib/domain docs.
-2. Keep one migration note for old scripts and APIs.
-3. Update educational material to focus on task/channel model.
+1. Implement per-domain SQ/CQ creation and descriptor helpers.
+2. Add service-side completion publishing.
+3. Bridge current blocking APIs to SQ submit + CQ wait.
 
 Exit criteria:
 
-- Repository docs reflect channels/services as the primary model.
-- Capability model is clearly marked removed/deprecated.
+- FS and WiFi operations can run through SQ/CQ with equivalent behavior.
+- Existing callers can still use current blocking APIs.
+
+### Phase 3 — Switch picoceci and stdlib to typed channels
+
+1. Replace capability-centric calls in picoceci paths with `openChannel`.
+2. Route `stdlib/fs`, `stdlib/wifi`, `stdlib/tls` through typed channel wrappers.
+3. Remove WiFi domain local capability shim usage.
+
+Exit criteria:
+
+- picoceci REPL I/O path no longer needs capability-request semantics.
+- `readModuleFromFS(...)` uses typed FS channel path.
+
+### Phase 4 — Shrink syscall/capability surface
+
+1. Remove unused capability grant/revoke request handling.
+2. Keep only minimal kernel channel routing/control syscalls.
+3. Add deterministic errors for channel-open/channel-send/channel-recv failures.
+
+Exit criteria:
+
+- Capability table is no longer part of the normal service I/O path.
+- Syscall layer is reduced to bootstrap/control rather than service transport.
+
+### Phase 5 — Validate fast path for picoceci over WiFi
+
+1. Ensure provider-before-consumer boot order (`sdcard`, `wifi`, then consumers).
+2. Validate TCP REPL with module reads/writes over typed FS channel.
+3. Capture one end-to-end smoke script for regression.
+
+Exit criteria:
+
+- picoceci over WiFi works with typed channels + SQ/CQ path.
+- No domain-local capability shim is required.
 
 ## Risk Controls
 
-- Do not change message wire formats unless required.
-- Keep backward-compatible wrappers until Phase 4 validation is complete.
-- Validate on-device after each phase (`make build`, domain build targets, and REPL smoke
-  checks).
+- Keep wire payload formats stable where possible during migration.
+- Gate removal behind compatibility wrappers until end-to-end smoke passes.
+- Validate each phase with `make build`, targeted domain builds, and runtime smoke checks.
