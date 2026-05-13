@@ -24,6 +24,7 @@ This keeps queue IPC and domain isolation while removing most capability formali
 - Replace capability acquisition APIs with typed channel opens:
   - `Canal openChannel: #fs.`
   - `Canal openChannel: #wifi.`
+- Note: the `openChannel:` examples above use picoceci selector syntax.
 - Each channel has a declared schema/version and fixed message object types:
   - `FSRequest` / `FSResponse`
   - `WiFiRequest` / `WiFiResponse`
@@ -119,4 +120,5 @@ Exit criteria:
 
 - Keep wire payload formats stable where possible during migration.
 - Gate removal behind compatibility wrappers until end-to-end smoke passes.
-- Validate each phase with `make build`, targeted domain builds, and runtime smoke checks.
+- Validate each phase with `make build`, targeted domain builds, and runtime smoke checks
+  (boot sequence, service registration, and basic channel open/send/recv behavior).
