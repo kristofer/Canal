@@ -28,10 +28,10 @@ cd canal
 # 1) Rebuild kernel (IDF bridge)
 make build
 
-# 2) Build + flash default domains (led + wifi), passing WiFi credentials
+# 2) Build + flash the default provider-first stack (sdcard + wifi + led), passing WiFi credentials
 make flash-domains \
  PORT=/dev/cu.usbmodem11201 \
- DOMAIN_STACK="led wifi" \
+ DOMAIN_STACK="sdcard wifi led" \
  WIFI_SSID="YOUR_SSID" \
  WIFI_PASSWORD="YOUR_PASSWORD" \
  WIFI_PORT=2323
@@ -50,6 +50,13 @@ nc <device-ip> 2323
 ```
 
 You should see the picoceci prompt and can paste multi-line programs using `---` paste mode delimiters.
+
+For the Phase 5 typed-channel smoke check, run:
+
+```bash
+cd canal
+./scripts/wifi-repl-smoke.sh <device-ip> 2323
+```
 
 ## 📚 Educational Materials
 
