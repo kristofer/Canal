@@ -188,8 +188,9 @@ typedef struct
 
 // Canonical Canal ESP32-S3 SD SPI pins.
 static const sd_pins_t k_sd_pin_sets[] = {
-    {.cs = 4, .mosi = 11, .miso = 13, .clk = 12},
-    {.cs = 2, .mosi = 42, .miso = 41, .clk = 40},
+    //    {.cs = 4, .mosi = 11, .miso = 13, .clk = 12},
+    //    {.cs = 2, .mosi = 42, .miso = 41, .clk = 40},
+    {.cs = 13, .mosi = 15, .miso = 2, .clk = 14},
 };
 
 static sdmmc_card_t *s_sdcard = NULL;
@@ -336,6 +337,7 @@ int32_t canal_sdcard_init(void)
 
             if (ret == ESP_OK)
             {
+                ESP_LOGI(TAG_SD, "sd init ok, registering diskio. s_sdcard=%p", s_sdcard);
                 ff_diskio_register_sdmmc(0, s_sdcard);
                 s_selected_pin_set = i;
                 ESP_LOGI(TAG_SD, "sd init ok pins[%d] cs=%d mosi=%d miso=%d clk=%d", i, pins.cs, pins.mosi, pins.miso, pins.clk);
@@ -376,7 +378,10 @@ int32_t canal_sdcard_init(void)
 // FatFS wrappers exposed for TinyGo domains through --just-symbols.
 uint8_t canal_f_mount(void *fs, const char *path, uint8_t opt)
 {
-    return (uint8_t)f_mount((FATFS *)fs, path, opt);
+    ESP_LOGI(TAG_SD, "canal_f_mount called: fs=%p path_ptr=%p opt=%u s_sdcard=%p", fs, path, opt, s_sdcard);
+    uint8_t result = (uint8_t)f_mount((FATFS *)fs, path, opt);
+    ESP_LOGI(TAG_SD, "canal_f_mount returned: %u", result);
+    return result;
 }
 
 uint8_t canal_f_open(void *fp, const char *path, uint8_t mode)

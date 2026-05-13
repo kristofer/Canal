@@ -74,6 +74,7 @@ const (
 // Global filesystem object
 var fs FATFS
 var fsMounted bool
+var fatfsRootPath = [1]byte{0}
 
 // File table (domain-local open files)
 type openFileSlot struct {
@@ -92,10 +93,12 @@ func mountFilesystem() error {
 		return nil
 	}
 
-	// f_mount(&fs, "", 1)  // Mount immediately
-	result := f_mount(&fs, cstring(""), 1)
+	println("[SDCard] Mounting filesystem, fs object address:", &fs)
+	result := f_mount(&fs, &fatfsRootPath[0], 1)
+	println("[SDCard] f_mount returned:", result)
 
 	if result != FR_OK {
+		println("[SDCard] Mount failed with FatFS error code:", result)
 		return fatfsError(result)
 	}
 
