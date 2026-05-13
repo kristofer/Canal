@@ -171,6 +171,7 @@ func makeCanalObject() *object.Object {
 	}}
 	o.Methods["openChannel:"] = openChannelMethod
 	// Deprecated compatibility alias; prefer openChannel: in new picoceci code.
+	// This alias will be removed once typed-channel migration is complete.
 	o.Methods["capability:"] = openChannelMethod
 
 	o.Methods["printString"] = &object.MethodDef{Native: func(_ *object.Object, _ []*object.Object) (*object.Object, error) {
