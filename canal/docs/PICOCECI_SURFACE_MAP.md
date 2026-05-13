@@ -25,7 +25,7 @@ Compatibility alias:
 - `readFile: <String|Symbol path>` → `String`
 - `exists: <String|Symbol path>` → `Bool`
 - `writeFile: <String|Symbol path> data: <String|ByteArray>` → `Nil`
-- `printString` → `"CanalFS(local-shim)"`
+- `printString` → `"CanalFS(service:fs)"`
 
 ## Notes
 

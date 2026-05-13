@@ -1,0 +1,21 @@
+"wifi_repl_phase5_smoke.pc"
+| fs: Any entries: Any roundTrip: Any |
+
+Console println: 'phase5 smoke: open typed fs channel'.
+fs := Canal openChannel: #fsReadWrite.
+
+Console println: 'phase5 smoke: list root'.
+entries := fs list: '/'.
+entries do: [ :e |
+    Console println: e printString
+].
+
+Console println: 'phase5 smoke: write module file'.
+fs writeFile: '/phase5-smoke.pc' data: 'Transcript println: ''phase5 module import ok''.'.
+
+Console println: 'phase5 smoke: read module file'.
+roundTrip := fs readFile: '/phase5-smoke.pc'.
+Console println: roundTrip.
+
+Console println: 'phase5 smoke: import module file'.
+import '/phase5-smoke.pc'.

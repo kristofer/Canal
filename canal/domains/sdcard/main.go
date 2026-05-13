@@ -181,7 +181,7 @@ func domain_entry(param unsafe.Pointer) {
 	println("[SDCard] Service starting...")
 
 	addPermission(1, "/", true, false, false, false)
-	addPermission(2, "/", true, false, false, false)
+	addPermission(2, "/", true, true, true, false)
 
 	serviceQ := xQueueGenericCreate(8, uint32(unsafe.Sizeof(fsMessage{})), 0)
 	if serviceQ == nil {
