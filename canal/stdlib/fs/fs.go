@@ -3,6 +3,7 @@
 package fs
 
 import (
+	"channel"
 	"kernel"
 	"runtime"
 	"unsafe"
@@ -271,6 +272,10 @@ func doRequest(op operation, rights uint32, req unsafe.Pointer, reqSize uintptr,
 }
 
 func ensureServiceCap(rights uint32) (runtime.CapHandle, error) {
+	if _, err := channel.OpenFS(); err != nil {
+		return 0, err
+	}
+
 	if rights&runtime.RightWrite != 0 {
 		if readWriteServiceCap != 0 {
 			return readWriteServiceCap, nil

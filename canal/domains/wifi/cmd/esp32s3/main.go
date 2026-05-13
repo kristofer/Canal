@@ -24,7 +24,6 @@ func domain_entry(param unsafe.Pointer) {
 	// in early startup or logging has valid backing memory.
 	initDomainHeapEarly()
 	heapInitialized = true
-	initCapabilityShimFromTaskParam(param)
 
 	domainMode = true
 	_ = param // Use param to avoid unused warning

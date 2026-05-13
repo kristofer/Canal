@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	cfs "stdlib/fs"
 	"strings"
 	"unsafe"
 
@@ -149,9 +150,9 @@ func installCanalGlobals(vm *bytecode.VM) {
 
 func makeCanalObject() *object.Object {
 	o := object.NewObject(make(map[string]*object.MethodDef))
-	o.Methods["capability:"] = &object.MethodDef{Native: func(_ *object.Object, args []*object.Object) (*object.Object, error) {
+	openChannel := &object.MethodDef{Native: func(_ *object.Object, args []*object.Object) (*object.Object, error) {
 		if len(args) != 1 {
-			return nil, fmt.Errorf("capability: expects one symbol argument")
+			return nil, fmt.Errorf("openChannel: expects one symbol argument")
 		}
 
 		name, err := symbolOrString(args[0])
@@ -165,9 +166,11 @@ func makeCanalObject() *object.Object {
 		case "fsWrite", "fsReadWrite", "fs":
 			return makeFSObject(), nil
 		default:
-			return nil, fmt.Errorf("unknown capability #%s", name)
+			return nil, fmt.Errorf("unknown channel #%s", name)
 		}
 	}}
+	o.Methods["openChannel:"] = openChannel
+	o.Methods["capability:"] = openChannel
 
 	o.Methods["printString"] = &object.MethodDef{Native: func(_ *object.Object, _ []*object.Object) (*object.Object, error) {
 		return object.StringObject("Canal"), nil
@@ -344,22 +347,15 @@ func doFSRequest(op fsOperation, rights uint32, req unsafe.Pointer, reqSize uint
 }
 
 func fsList(path string) ([]string, error) {
-	var req fsListRequest
-	copyPath(req.Path[:], path)
-	req.MaxItems = fsMaxListItems
-
-	var resp fsListResponse
-	if err := doFSRequest(fsOpList, fsRightRead, unsafe.Pointer(&req), unsafe.Sizeof(req), unsafe.Pointer(&resp), unsafe.Sizeof(resp)); err != nil {
+	items, err := cfs.ReadDir(path)
+	if err != nil {
 		return nil, err
 	}
-	if !resp.Success {
-		return nil, errFSOperation
-	}
 
-	out := make([]string, 0, resp.NumItems)
-	for i := uint16(0); i < resp.NumItems && i < fsMaxListItems; i++ {
-		entry := trimNull(resp.Items[i].Name[:])
-		if resp.Items[i].IsDir {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		entry := item.Name
+		if item.IsDir {
 			entry += "/"
 		}
 		out = append(out, entry)
@@ -368,104 +364,11 @@ func fsList(path string) ([]string, error) {
 }
 
 func fsReadFile(path string) ([]byte, error) {
-	var openReq fsOpenRequest
-	copyPath(openReq.Path[:], path)
-	openReq.Mode = fsModeRead
-
-	var openResp fsOpenResponse
-	if err := doFSRequest(fsOpOpen, fsRightRead, unsafe.Pointer(&openReq), unsafe.Sizeof(openReq), unsafe.Pointer(&openResp), unsafe.Sizeof(openResp)); err != nil {
-		return nil, err
-	}
-	if !openResp.Success {
-		return nil, errNoSuchFile
-	}
-
-	handle := openResp.Handle
-	defer func() {
-		var closeReq fsCloseRequest
-		closeReq.Handle = handle
-		var closeResp fsBoolResponse
-		_ = doFSRequest(fsOpClose, fsRightRead, unsafe.Pointer(&closeReq), unsafe.Sizeof(closeReq), unsafe.Pointer(&closeResp), unsafe.Sizeof(closeResp))
-	}()
-
-	buf := make([]byte, 0, 512)
-	for {
-		var readReq fsReadRequest
-		readReq.Handle = handle
-		readReq.Length = fsMaxChunkSize
-
-		var readResp fsReadResponse
-		if err := doFSRequest(fsOpRead, fsRightRead, unsafe.Pointer(&readReq), unsafe.Sizeof(readReq), unsafe.Pointer(&readResp), unsafe.Sizeof(readResp)); err != nil {
-			return nil, err
-		}
-		if !readResp.Success {
-			return nil, errFSOperation
-		}
-
-		n := int(readResp.BytesRead)
-		if n > 0 {
-			buf = append(buf, readResp.Data[:n]...)
-		}
-		if n == 0 || readResp.EOF {
-			return buf, nil
-		}
-	}
+	return cfs.ReadFile(path)
 }
 
 func fsWriteFile(path string, data []byte) error {
-	var openReq fsOpenRequest
-	copyPath(openReq.Path[:], path)
-	openReq.Mode = fsModeWrite | fsModeCreate | fsModeTruncate
-
-	var openResp fsOpenResponse
-	if err := doFSRequest(fsOpOpen, fsRightReadWrite, unsafe.Pointer(&openReq), unsafe.Sizeof(openReq), unsafe.Pointer(&openResp), unsafe.Sizeof(openResp)); err != nil {
-		return err
-	}
-	if !openResp.Success {
-		return errFSOperation
-	}
-
-	handle := openResp.Handle
-	defer func() {
-		var closeReq fsCloseRequest
-		closeReq.Handle = handle
-		var closeResp fsBoolResponse
-		_ = doFSRequest(fsOpClose, fsRightReadWrite, unsafe.Pointer(&closeReq), unsafe.Sizeof(closeReq), unsafe.Pointer(&closeResp), unsafe.Sizeof(closeResp))
-	}()
-
-	for len(data) > 0 {
-		chunk := len(data)
-		if chunk > fsMaxChunkSize {
-			chunk = fsMaxChunkSize
-		}
-
-		var writeReq fsWriteRequest
-		writeReq.Handle = handle
-		writeReq.Length = uint16(chunk)
-		copy(writeReq.Data[:], data[:chunk])
-
-		var writeResp fsWriteResponse
-		if err := doFSRequest(fsOpWrite, fsRightReadWrite, unsafe.Pointer(&writeReq), unsafe.Sizeof(writeReq), unsafe.Pointer(&writeResp), unsafe.Sizeof(writeResp)); err != nil {
-			return err
-		}
-		if !writeResp.Success {
-			return errFSOperation
-		}
-
-		data = data[chunk:]
-	}
-
-	var syncReq fsSyncRequest
-	syncReq.Handle = handle
-	var syncResp fsBoolResponse
-	if err := doFSRequest(fsOpSync, fsRightReadWrite, unsafe.Pointer(&syncReq), unsafe.Sizeof(syncReq), unsafe.Pointer(&syncResp), unsafe.Sizeof(syncResp)); err != nil {
-		return err
-	}
-	if !syncResp.Success {
-		return errFSOperation
-	}
-
-	return nil
+	return cfs.WriteFile(path, data)
 }
 
 func copyPath(dst []byte, path string) {
