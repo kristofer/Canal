@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	cfs "stdlib/fs"
 	"strings"
 	"unsafe"
 
@@ -329,15 +328,22 @@ func doFSRequest(op fsOperation, rights uint32, req unsafe.Pointer, reqSize uint
 }
 
 func fsList(path string) ([]string, error) {
-	items, err := cfs.ReadDir(path)
-	if err != nil {
+	var req fsListRequest
+	copyPath(req.Path[:], path)
+	req.MaxItems = fsMaxListItems
+
+	var resp fsListResponse
+	if err := doFSRequest(fsOpList, fsRightRead, unsafe.Pointer(&req), unsafe.Sizeof(req), unsafe.Pointer(&resp), unsafe.Sizeof(resp)); err != nil {
 		return nil, err
 	}
+	if !resp.Success {
+		return nil, fmt.Errorf("list operation on %q failed on server", path)
+	}
 
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		entry := item.Name
-		if item.IsDir {
+	out := make([]string, 0, int(resp.NumItems))
+	for i := uint16(0); i < resp.NumItems && i < fsMaxListItems; i++ {
+		entry := trimNull(resp.Items[i].Name[:])
+		if resp.Items[i].IsDir {
 			entry += "/"
 		}
 		out = append(out, entry)
@@ -346,11 +352,123 @@ func fsList(path string) ([]string, error) {
 }
 
 func fsReadFile(path string) ([]byte, error) {
-	return cfs.ReadFile(path)
+	var openReq fsOpenRequest
+	copyPath(openReq.Path[:], path)
+	openReq.Mode = fsModeRead
+
+	var openResp fsOpenResponse
+	if err := doFSRequest(fsOpOpen, fsRightRead, unsafe.Pointer(&openReq), unsafe.Sizeof(openReq), unsafe.Pointer(&openResp), unsafe.Sizeof(openResp)); err != nil {
+		return nil, err
+	}
+	if !openResp.Success {
+		return nil, fmt.Errorf("cannot open %q for reading (file not found or permission denied)", path)
+	}
+
+	handle := openResp.Handle
+	defer func() {
+		var closeReq fsCloseRequest
+		closeReq.Handle = handle
+		var closeResp fsBoolResponse
+		_ = doFSRequest(fsOpClose, fsRightRead, unsafe.Pointer(&closeReq), unsafe.Sizeof(closeReq), unsafe.Pointer(&closeResp), unsafe.Sizeof(closeResp))
+	}()
+
+	buf := make([]byte, 0, 512)
+	for {
+		var readReq fsReadRequest
+		readReq.Handle = handle
+		readReq.Length = fsMaxChunkSize
+
+		var readResp fsReadResponse
+		if err := doFSRequest(fsOpRead, fsRightRead, unsafe.Pointer(&readReq), unsafe.Sizeof(readReq), unsafe.Pointer(&readResp), unsafe.Sizeof(readResp)); err != nil {
+			return nil, fmt.Errorf("read from %q failed: %w", path, err)
+		}
+		if !readResp.Success {
+			return nil, fmt.Errorf("read operation on %q failed on server", path)
+		}
+
+		n := int(readResp.BytesRead)
+		if n > 0 {
+			buf = append(buf, readResp.Data[:n]...)
+		}
+		if n == 0 || readResp.EOF {
+			return buf, nil
+		}
+	}
 }
 
 func fsWriteFile(path string, data []byte) error {
-	return cfs.WriteFile(path, data)
+	var openReq fsOpenRequest
+	copyPath(openReq.Path[:], path)
+	openReq.Mode = fsModeWrite | fsModeCreate | fsModeTruncate
+
+	var openResp fsOpenResponse
+	if err := doFSRequest(fsOpOpen, fsRightReadWrite, unsafe.Pointer(&openReq), unsafe.Sizeof(openReq), unsafe.Pointer(&openResp), unsafe.Sizeof(openResp)); err != nil {
+		return err
+	}
+	if !openResp.Success {
+		return fmt.Errorf("cannot open %q for writing (permission denied or invalid path)", path)
+	}
+
+	handle := openResp.Handle
+	defer func() {
+		var closeReq fsCloseRequest
+		closeReq.Handle = handle
+		var closeResp fsBoolResponse
+		_ = doFSRequest(fsOpClose, fsRightReadWrite, unsafe.Pointer(&closeReq), unsafe.Sizeof(closeReq), unsafe.Pointer(&closeResp), unsafe.Sizeof(closeResp))
+	}()
+
+	for len(data) > 0 {
+		chunk := len(data)
+		if chunk > fsMaxChunkSize {
+			chunk = fsMaxChunkSize
+		}
+
+		var writeReq fsWriteRequest
+		writeReq.Handle = handle
+		writeReq.Length = uint16(chunk)
+		copy(writeReq.Data[:], data[:chunk])
+
+		var writeResp fsWriteResponse
+		if err := doFSRequest(fsOpWrite, fsRightReadWrite, unsafe.Pointer(&writeReq), unsafe.Sizeof(writeReq), unsafe.Pointer(&writeResp), unsafe.Sizeof(writeResp)); err != nil {
+			return fmt.Errorf("write to %q failed: %w", path, err)
+		}
+		if !writeResp.Success {
+			return fmt.Errorf("write operation on %q failed on server", path)
+		}
+
+		data = data[chunk:]
+	}
+
+	var syncReq fsSyncRequest
+	syncReq.Handle = handle
+	var syncResp fsBoolResponse
+	if err := doFSRequest(fsOpSync, fsRightReadWrite, unsafe.Pointer(&syncReq), unsafe.Sizeof(syncReq), unsafe.Pointer(&syncResp), unsafe.Sizeof(syncResp)); err != nil {
+		return fmt.Errorf("sync %q failed: %w", path, err)
+	}
+	if !syncResp.Success {
+		return fmt.Errorf("sync operation on %q failed on server", path)
+	}
+
+	return nil
+}
+
+func copyPath(dst []byte, path string) {
+	cleaned := cleanPath(path)
+	n := copy(dst, cleaned)
+	if n >= len(dst) {
+		dst[len(dst)-1] = 0
+		return
+	}
+	dst[n] = 0
+}
+
+func trimNull(b []byte) string {
+	for i := range b {
+		if b[i] == 0 {
+			return string(b[:i])
+		}
+	}
+	return string(b)
 }
 
 func cleanPath(path string) string {
