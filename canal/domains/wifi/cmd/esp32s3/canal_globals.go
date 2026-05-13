@@ -150,7 +150,7 @@ func installCanalGlobals(vm *bytecode.VM) {
 
 func makeCanalObject() *object.Object {
 	o := object.NewObject(make(map[string]*object.MethodDef))
-	openChannel := &object.MethodDef{Native: func(_ *object.Object, args []*object.Object) (*object.Object, error) {
+	openChannelMethod := &object.MethodDef{Native: func(_ *object.Object, args []*object.Object) (*object.Object, error) {
 		if len(args) != 1 {
 			return nil, fmt.Errorf("openChannel: expects one symbol argument")
 		}
@@ -169,9 +169,9 @@ func makeCanalObject() *object.Object {
 			return nil, fmt.Errorf("unknown channel #%s", name)
 		}
 	}}
-	o.Methods["openChannel:"] = openChannel
+	o.Methods["openChannel:"] = openChannelMethod
 	// Deprecated compatibility alias; prefer openChannel: in new picoceci code.
-	o.Methods["capability:"] = openChannel
+	o.Methods["capability:"] = openChannelMethod
 
 	o.Methods["printString"] = &object.MethodDef{Native: func(_ *object.Object, _ []*object.Object) (*object.Object, error) {
 		return object.StringObject("Canal"), nil
