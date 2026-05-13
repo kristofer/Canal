@@ -371,25 +371,6 @@ func fsWriteFile(path string, data []byte) error {
 	return cfs.WriteFile(path, data)
 }
 
-func copyPath(dst []byte, path string) {
-	cleaned := cleanPath(path)
-	n := copy(dst, cleaned)
-	if n >= len(dst) {
-		dst[len(dst)-1] = 0
-		return
-	}
-	dst[n] = 0
-}
-
-func trimNull(b []byte) string {
-	for i := range b {
-		if b[i] == 0 {
-			return string(b[:i])
-		}
-	}
-	return string(b)
-}
-
 func localReadFile(path string) ([]byte, error) {
 	path = cleanPath(path)
 	for i := range localFiles {

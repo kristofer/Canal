@@ -272,6 +272,7 @@ func doRequest(op operation, rights uint32, req unsafe.Pointer, reqSize uintptr,
 }
 
 func ensureServiceCap(rights uint32) (runtime.CapHandle, error) {
+	// Validate that the typed FS channel is present before opening the service.
 	if _, err := channel.OpenFS(); err != nil {
 		return 0, err
 	}
