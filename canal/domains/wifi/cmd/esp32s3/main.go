@@ -26,7 +26,8 @@ func domain_entry(param unsafe.Pointer) {
 	heapInitialized = true
 
 	domainMode = true
-	_ = param // Use param to avoid unused warning
+	// Keep loader ABI-compatible signature: kernel passes task params here.
+	_ = param
 	_ = runWiFi()
 
 	// If runWiFi ever returns, park safely instead of executing fallthrough bytes.
