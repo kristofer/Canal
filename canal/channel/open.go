@@ -9,7 +9,7 @@ var (
 )
 
 // Open resolves a named channel and validates the requested schema.
-// It returns deterministic ErrOpenFailed on any failure.
+// Unknown names and schema mismatches both return ErrOpenFailed.
 func Open(name string, schema SchemaVersion) (Entry, error) {
 	entry, ok := Lookup(name)
 	if !ok {
@@ -21,14 +21,17 @@ func Open(name string, schema SchemaVersion) (Entry, error) {
 	return entry, nil
 }
 
+// OpenFS resolves the typed fs service channel entry.
 func OpenFS() (Entry, error) {
 	return Open("fs", SchemaV1)
 }
 
+// OpenWiFi resolves the typed wifi service channel entry.
 func OpenWiFi() (Entry, error) {
 	return Open("wifi", SchemaV1)
 }
 
+// OpenTLS resolves the typed tls service channel entry.
 func OpenTLS() (Entry, error) {
 	return Open("tls", SchemaV1)
 }
