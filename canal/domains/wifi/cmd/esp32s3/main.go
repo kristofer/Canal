@@ -24,10 +24,10 @@ func domain_entry(param unsafe.Pointer) {
 	// in early startup or logging has valid backing memory.
 	initDomainHeapEarly()
 	heapInitialized = true
-	initCapabilityShimFromTaskParam(param)
 
 	domainMode = true
-	_ = param // Use param to avoid unused warning
+	// Keep loader ABI-compatible signature: kernel passes task params here.
+	_ = param
 	_ = runWiFi()
 
 	// If runWiFi ever returns, park safely instead of executing fallthrough bytes.

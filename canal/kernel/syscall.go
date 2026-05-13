@@ -58,12 +58,6 @@ func SyscallHandler(params unsafe.Pointer) {
 		case SysCapRequest:
 			resp = handleCapRequest(&req)
 
-		case SysCapGrant:
-			resp = handleCapGrant(&req)
-
-		case SysCapRevoke:
-			resp = handleCapRevoke(&req)
-
 		case SysCapSend:
 			resp = handleCapSend(&req)
 
@@ -161,17 +155,6 @@ func handleCapRecv(req *SyscallRequest) SyscallResponse {
 		Result: int32(err),
 		Error:  err,
 	}
-}
-
-func handleCapGrant(req *SyscallRequest) SyscallResponse {
-	targetDomain := DomainID(req.Arg0)
-	err := CapGrant(req.CapID, req.DomainID, targetDomain)
-	return SyscallResponse{Result: int32(err), Error: err}
-}
-
-func handleCapRevoke(req *SyscallRequest) SyscallResponse {
-	err := CapRevoke(req.CapID, req.DomainID)
-	return SyscallResponse{Result: int32(err), Error: err}
 }
 
 // Handle memory allocation — allocates from the Go GC heap on behalf of a domain.

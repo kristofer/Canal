@@ -3,6 +3,7 @@
 package fs
 
 import (
+	"channel"
 	"kernel"
 	"runtime"
 	"unsafe"
@@ -271,6 +272,13 @@ func doRequest(op operation, rights uint32, req unsafe.Pointer, reqSize uintptr,
 }
 
 func ensureServiceCap(rights uint32) (runtime.CapHandle, error) {
+	// Phase-3 bridge: validate typed channel registry/schema before capability acquisition.
+	// The returned Entry is discarded because runtime transport still uses caps until
+	// the phase-5 fast-path transport cutover is complete.
+	if _, err := channel.OpenFS(); err != nil {
+		return 0, err
+	}
+
 	if rights&runtime.RightWrite != 0 {
 		if readWriteServiceCap != 0 {
 			return readWriteServiceCap, nil
